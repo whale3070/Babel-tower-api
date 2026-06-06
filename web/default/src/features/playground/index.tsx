@@ -19,9 +19,12 @@ For commercial licensing, please contact support@quantumnous.com
 import { useCallback, useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
+import { ListTree } from 'lucide-react'
 import { toast } from 'sonner'
+import { Button } from '@/components/ui/button'
 import { getUserModels, getUserGroups } from './api'
 import { PlaygroundChat } from './components/playground-chat'
+import { ConversationToc } from './components/conversation-toc'
 import { PlaygroundInput } from './components/playground-input'
 import { usePlaygroundState, useChatHandler } from './hooks'
 import { createUserMessage, createLoadingAssistantMessage } from './lib'
@@ -51,6 +54,7 @@ export function Playground() {
   const [editingMessageKey, setEditingMessageKey] = useState<string | null>(
     null
   )
+  const [showConversationToc, setShowConversationToc] = useState(true)
 
   // Load models
   const { data: modelsData, isLoading: isLoadingModels } = useQuery({
@@ -190,9 +194,23 @@ export function Playground() {
 
   return (
     <div className='relative flex size-full flex-col overflow-hidden'>
-      {/* Full-width scroll container: scrolling works even over side whitespace */}
-      <div className='flex flex-1 flex-col overflow-hidden'>
-        <PlaygroundChat
+      <div className='absolute top-3 right-3 z-20'>
+        <Button
+          type='button'
+          variant={showConversationToc ? 'secondary' : 'outline'}
+          size='sm'
+          onClick={() => setShowConversationToc((prev) => !prev)}
+        >
+          <ListTree className='size-4' />
+          {showConversationToc
+            ? t('Hide outline')
+            : t('Conversation outline')}
+        </Button>
+      </div>
+
+      <div className='flex flex-1 overflow-hidden'>
+        <div className='flex flex-1 flex-col overflow-hidden'>
+          <PlaygroundChat
           messages={messages}
           onCopyMessage={handleCopyMessage}
           onRegenerateMessage={handleRegenerateMessage}
@@ -204,6 +222,14 @@ export function Playground() {
           onSaveEdit={(newContent) => applyEdit(newContent, false)}
           onSaveEditAndSubmit={(newContent) => applyEdit(newContent, true)}
         />
+        </div>
+
+        {showConversationToc && (
+          <ConversationToc
+            messages={messages}
+            onClose={() => setShowConversationToc(false)}
+          />
+        )}
       </div>
 
       {/* Input area: center content and constrain to the same container width */}

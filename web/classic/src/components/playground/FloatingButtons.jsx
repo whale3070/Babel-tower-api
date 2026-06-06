@@ -19,14 +19,16 @@ For commercial licensing, please contact support@quantumnous.com
 
 import React from 'react';
 import { Button } from '@douyinfe/semi-ui';
-import { Settings, Eye, EyeOff } from 'lucide-react';
+import { Settings, Eye, EyeOff, ListTree } from 'lucide-react';
 
 const FloatingButtons = ({
   styleState,
   showSettings,
   showDebugPanel,
+  showConversationToc,
   onToggleSettings,
   onToggleDebugPanel,
+  onToggleConversationToc,
 }) => {
   if (!styleState.isMobile) return null;
 
@@ -51,6 +53,31 @@ const FloatingButtons = ({
           onClick={onToggleSettings}
           theme='solid'
           type='primary'
+          className='lg:hidden'
+        />
+      )}
+
+      {/* 目录按钮 */}
+      {!showSettings && (
+        <Button
+          icon={<ListTree size={18} />}
+          onClick={onToggleConversationToc}
+          theme='solid'
+          type={showConversationToc ? 'danger' : 'primary'}
+          style={{
+            position: 'fixed',
+            right: 16,
+            bottom: 190,
+            zIndex: 1000,
+            width: 36,
+            height: 36,
+            borderRadius: '50%',
+            padding: 0,
+            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.2)',
+            background: showConversationToc
+              ? 'linear-gradient(to right, #e11d48, #be123c)'
+              : 'linear-gradient(to right, #7c3aed, #6366f1)',
+          }}
           className='lg:hidden'
         />
       )}

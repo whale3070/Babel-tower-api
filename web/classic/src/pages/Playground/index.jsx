@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-import React, { useContext, useEffect, useCallback, useRef } from 'react';
+import React, { useContext, useEffect, useCallback, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Layout, Toast, Modal } from '@douyinfe/semi-ui';
@@ -58,6 +58,7 @@ import {
   OptimizedMessageActions,
 } from '../../components/playground/OptimizedComponents';
 import ChatArea from '../../components/playground/ChatArea';
+import ConversationToc from '../../components/playground/ConversationToc';
 import FloatingButtons from '../../components/playground/FloatingButtons';
 import { PlaygroundProvider } from '../../contexts/PlaygroundContext';
 
@@ -82,6 +83,7 @@ const Playground = () => {
   const [userState] = useContext(UserContext);
   const isMobile = useIsMobile();
   const styleState = { isMobile };
+  const [showConversationToc, setShowConversationToc] = useState(() => !isMobile);
   const [searchParams] = useSearchParams();
 
   const state = usePlaygroundState();
@@ -319,23 +321,34 @@ const Playground = () => {
     [setMessage],
   );
 
+  useEffect(() => {
+    if (isMobile) {
+      setShowConversationToc(false);
+    }
+  }, [isMobile]);
+
   // 渲染函数
   const renderCustomChatContent = useCallback(
     ({ message, className }) => {
       const isCurrentlyEditing = editingMessageId === message.id;
 
       return (
-        <OptimizedMessageContent
-          message={message}
-          className={className}
-          styleState={styleState}
-          onToggleReasoningExpansion={toggleReasoningExpansion}
-          isEditing={isCurrentlyEditing}
-          onEditSave={handleEditSave}
-          onEditCancel={handleEditCancel}
-          editValue={editValue}
-          onEditValueChange={setEditValue}
-        />
+        <div
+          id={`playground-msg-${message.id}`}
+          className='playground-message-anchor scroll-mt-28'
+        >
+          <OptimizedMessageContent
+            message={message}
+            className={className}
+            styleState={styleState}
+            onToggleReasoningExpansion={toggleReasoningExpansion}
+            isEditing={isCurrentlyEditing}
+            onEditSave={handleEditSave}
+            onEditCancel={handleEditCancel}
+            editValue={editValue}
+            onEditValueChange={setEditValue}
+          />
+        </div>
       );
     },
     [
@@ -505,6 +518,7 @@ const Playground = () => {
                   inputs={inputs}
                   styleState={styleState}
                   showDebugPanel={showDebugPanel}
+                  showConversationToc={showConversationToc}
                   roleInfo={roleInfo}
                   onMessageSend={onMessageSend}
                   onMessageCopy={messageActions.handleMessageCopy}
@@ -513,10 +527,23 @@ const Playground = () => {
                   onStopGenerator={onStopGenerator}
                   onClearMessages={handleClearMessages}
                   onToggleDebugPanel={() => setShowDebugPanel(!showDebugPanel)}
+                  onToggleConversationToc={() =>
+                    setShowConversationToc(!showConversationToc)
+                  }
                   renderCustomChatContent={renderCustomChatContent}
                   renderChatBoxAction={renderChatBoxAction}
                 />
               </div>
+
+              {showConversationToc && !isMobile && (
+                <div className='w-60 flex-shrink-0 h-full'>
+                  <ConversationToc
+                    messages={message}
+                    styleState={styleState}
+                    onClose={() => setShowConversationToc(false)}
+                  />
+                </div>
+              )}
 
               {/* 调试面板 - 桌面端 */}
               {showDebugPanel && !isMobile && (
@@ -531,6 +558,17 @@ const Playground = () => {
                 </div>
               )}
             </div>
+
+            {showConversationToc && isMobile && (
+              <div className='fixed top-0 left-0 right-0 bottom-0 z-[1000] bg-white overflow-hidden shadow-lg'>
+                <ConversationToc
+                  messages={message}
+                  styleState={styleState}
+                  onClose={() => setShowConversationToc(false)}
+                  className='h-full'
+                />
+              </div>
+            )}
 
             {/* 调试面板 - 移动端覆盖层 */}
             {showDebugPanel && isMobile && (
@@ -552,8 +590,12 @@ const Playground = () => {
               styleState={styleState}
               showSettings={showSettings}
               showDebugPanel={showDebugPanel}
+              showConversationToc={showConversationToc}
               onToggleSettings={() => setShowSettings(!showSettings)}
               onToggleDebugPanel={() => setShowDebugPanel(!showDebugPanel)}
+              onToggleConversationToc={() =>
+                setShowConversationToc(!showConversationToc)
+              }
             />
           </Layout.Content>
         </Layout>

@@ -281,6 +281,10 @@ code {
 }
 
 /* ==================== 聊天界面样式 ==================== */
+.playground-message-anchor {
+  scroll-margin-top: 7rem;
+}
+
 .semi-chat {
   padding-top: 0 !important;
   padding-bottom: 0 !important;

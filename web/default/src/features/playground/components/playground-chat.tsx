@@ -110,7 +110,12 @@ export function PlaygroundChat({
               messageIndex === messages.length - 1 &&
               message.from === MESSAGE_ROLES.ASSISTANT
             return (
-              <Branch defaultBranch={0} key={message.key}>
+              <div
+                id={`playground-msg-${message.key}`}
+                className='playground-message-anchor scroll-mt-24'
+                key={message.key}
+              >
+              <Branch defaultBranch={0}>
                 <BranchMessages>
                   {versions.map((version, versionIndex) => (
                     <Message
@@ -281,6 +286,7 @@ export function PlaygroundChat({
                   </BranchSelector>
                 )}
               </Branch>
+              </div>
             )
           })}
         </div>

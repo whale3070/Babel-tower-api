@@ -19,7 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 
 import React from 'react';
 import { Card, Chat, Typography, Button } from '@douyinfe/semi-ui';
-import { MessageSquare, Eye, EyeOff } from 'lucide-react';
+import { MessageSquare, Eye, EyeOff, ListTree } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import CustomInputRender from './CustomInputRender';
 
@@ -37,6 +37,8 @@ const ChatArea = ({
   onStopGenerator,
   onClearMessages,
   onToggleDebugPanel,
+  showConversationToc,
+  onToggleConversationToc,
   renderCustomChatContent,
   renderChatBoxAction,
 }) => {
@@ -78,6 +80,18 @@ const ChatArea = ({
               </div>
             </div>
             <div className='flex items-center gap-2'>
+              <Button
+                icon={<ListTree size={14} />}
+                onClick={onToggleConversationToc}
+                theme='borderless'
+                type='primary'
+                size='small'
+                className={`!rounded-lg !text-white/80 hover:!text-white hover:!bg-white/10 ${
+                  showConversationToc ? '!bg-white/15 !text-white' : ''
+                }`}
+              >
+                {showConversationToc ? t('隐藏目录') : t('对话目录')}
+              </Button>
               <Button
                 icon={showDebugPanel ? <EyeOff size={14} /> : <Eye size={14} />}
                 onClick={onToggleDebugPanel}
