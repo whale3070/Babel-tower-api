@@ -109,6 +109,9 @@ func (*CreemAdaptor) RequestPay(c *gin.Context, req *CreemPayRequest) {
 		UserId:          id,
 		Amount:          selectedProduct.Quota, // 充值额度
 		Money:           selectedProduct.Price, // 支付金额
+		CreditedQuota:   selectedProduct.Quota,
+		PaymentAmount:   selectedProduct.Price,
+		PaymentCurrency: selectedProduct.Currency,
 		TradeNo:         referenceId,
 		PaymentMethod:   model.PaymentMethodCreem,
 		PaymentProvider: model.PaymentProviderCreem,

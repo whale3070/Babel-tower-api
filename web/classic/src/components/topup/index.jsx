@@ -25,7 +25,6 @@ import {
   showInfo,
   showSuccess,
   renderQuota,
-  renderQuotaWithAmount,
   copy,
   getQuotaPerUnit,
 } from '../../helpers';
@@ -39,6 +38,53 @@ import InvitationCard from './InvitationCard';
 import TransferModal from './modals/TransferModal';
 import PaymentConfirmModal from './modals/PaymentConfirmModal';
 import TopupHistoryModal from './modals/TopupHistoryModal';
+import {
+  formatPaymentAmount,
+  normalizeTopupInputUnit,
+} from './payment-display';
+
+const parseJsonArray = (value) => {
+  if (Array.isArray(value)) return value;
+  if (typeof value !== 'string') return [];
+
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+};
+
+const parseDiscountMap = (value) => {
+  if (!value) return {};
+
+  let parsed = value;
+  if (typeof value === 'string') {
+    try {
+      parsed = JSON.parse(value);
+    } catch {
+      return {};
+    }
+  }
+
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return {};
+  }
+
+  return Object.entries(parsed).reduce((result, [key, item]) => {
+    const numericKey = Number(key);
+    const numericValue = Number(item);
+    if (
+      Number.isFinite(numericKey) &&
+      numericKey > 0 &&
+      Number.isFinite(numericValue) &&
+      numericValue > 0
+    ) {
+      result[numericKey] = numericValue;
+    }
+    return result;
+  }, {});
+};
 
 // Reject non-navigable schemes (e.g. javascript:, data:) and relative URLs.
 // Only http / https are allowed for backend-provided redirect targets.
@@ -64,7 +110,7 @@ const TopUp = () => {
   const [statusState] = useContext(StatusContext);
 
   const [redemptionCode, setRedemptionCode] = useState('');
-  const [amount, setAmount] = useState(0.0);
+  const [amount, setAmount] = useState(null);
   const [minTopUp, setMinTopUp] = useState(statusState?.status?.min_topup || 1);
   const [topUpCount, setTopUpCount] = useState(
     statusState?.status?.min_topup || 1,
@@ -73,8 +119,6 @@ const TopUp = () => {
   const [enableOnlineTopUp, setEnableOnlineTopUp] = useState(
     statusState?.status?.enable_online_topup || false,
   );
-  const [priceRatio, setPriceRatio] = useState(statusState?.status?.price || 1);
-
   const [enableStripeTopUp, setEnableStripeTopUp] = useState(
     statusState?.status?.enable_stripe_topup || false,
   );
@@ -127,19 +171,37 @@ const TopUp = () => {
   const [topupInfo, setTopupInfo] = useState({
     amount_options: [],
     discount: {},
+    topup_input_unit: normalizeTopupInputUnit(
+      statusState?.status?.quota_display_type,
+    ),
+    waffo_currency: 'USD',
     enable_redemption: true,
     payment_compliance_confirmed: true,
   });
 
-  const confirmPayMethods = [
-    ...payMethods,
-    ...waffoPayMethods.map((method, index) => ({
-      ...method,
-      type: `waffo:${index}`,
-      min_topup: waffoMinTopUp,
-      color: method.color || 'rgba(var(--semi-primary-5), 1)',
-    })),
-  ];
+  const normalizedWaffoPayMethods = enableWaffoTopUp
+    ? waffoPayMethods.length > 0
+      ? waffoPayMethods.map((method, index) => ({
+          ...method,
+          id: `waffo:${index}`,
+          type: `waffo:${index}`,
+          currency: topupInfo.waffo_currency || 'USD',
+          min_topup: waffoMinTopUp,
+          color: method.color || 'rgba(var(--semi-primary-5), 1)',
+        }))
+      : [
+          {
+            id: 'waffo:default',
+            name: 'Waffo (Global Payment)',
+            type: 'waffo:default',
+            currency: topupInfo.waffo_currency || 'USD',
+            min_topup: waffoMinTopUp,
+            color: 'rgba(var(--semi-primary-5), 1)',
+          },
+        ]
+    : [];
+
+  const confirmPayMethods = [...payMethods, ...normalizedWaffoPayMethods];
 
   const getPayMethodConfig = (payment) =>
     confirmPayMethods.find((method) => method.type === payment);
@@ -232,13 +294,18 @@ const TopUp = () => {
     }
 
     setPayWay(payment);
+    setAmount(null);
     setPaymentLoading(true);
     try {
       const selectedMinTopUp = getPaymentMinTopUp(payment);
-      await requestAmountByPayment(payment);
-
       if (topUpCount < selectedMinTopUp) {
         showError(t('充值数量不能小于') + selectedMinTopUp);
+        return;
+      }
+
+      const quotedAmount = await requestAmountByPayment(payment);
+      if (quotedAmount === null) {
+        showError(t('获取金额失败'));
         return;
       }
       setOpen(true);
@@ -273,20 +340,17 @@ const TopUp = () => {
       return;
     }
 
-    if (payWay === 'stripe') {
-      // Stripe 支付处理
-      if (amount === 0) {
-        await getStripeAmount();
-      }
-    } else {
-      // 普通支付处理
-      if (amount === 0) {
-        await getAmount();
+    if (amount === null) {
+      const quotedAmount = await requestAmountByPayment(payWay);
+      if (quotedAmount === null) {
+        showError(t('获取金额失败'));
+        return;
       }
     }
 
-    if (topUpCount < minTopUp) {
-      showError('充值数量不能小于' + minTopUp);
+    const selectedMinTopUp = getPaymentMinTopUp(payWay);
+    if (topUpCount < selectedMinTopUp) {
+      showError(t('充值数量不能小于') + selectedMinTopUp);
       return;
     }
     setConfirmLoading(true);
@@ -440,9 +504,15 @@ const TopUp = () => {
       if (res !== undefined) {
         const { message, data } = res.data;
         if (message === 'success') {
-          setAmount(parseFloat(data));
+          const quotedAmount = parseFloat(data);
+          if (Number.isFinite(quotedAmount) && quotedAmount > 0) {
+            setAmount(quotedAmount);
+            return quotedAmount;
+          }
+          setAmount(null);
+          return null;
         } else {
-          setAmount(0);
+          setAmount(null);
           Toast.error({ content: '错误：' + data, id: 'getAmount' });
         }
       } else {
@@ -453,6 +523,7 @@ const TopUp = () => {
     } finally {
       setAmountLoading(false);
     }
+    return null;
   };
 
   const waffoPancakeTopUp = async () => {
@@ -507,9 +578,15 @@ const TopUp = () => {
       if (res !== undefined) {
         const { message, data } = res.data;
         if (message === 'success') {
-          setAmount(parseFloat(data));
+          const quotedAmount = parseFloat(data);
+          if (Number.isFinite(quotedAmount) && quotedAmount > 0) {
+            setAmount(quotedAmount);
+            return quotedAmount;
+          }
+          setAmount(null);
+          return null;
         } else {
-          setAmount(0);
+          setAmount(null);
           Toast.error({ content: '错误：' + data, id: 'getAmount' });
         }
       } else {
@@ -520,6 +597,7 @@ const TopUp = () => {
     } finally {
       setAmountLoading(false);
     }
+    return null;
   };
 
   const processCreemCallback = (data) => {
@@ -596,126 +674,124 @@ const TopUp = () => {
   const getTopupInfo = async () => {
     try {
       const res = await API.get('/api/user/topup/info');
-      const { message, data, success } = res.data;
+      const { data, success } = res.data;
       if (success) {
+        const amountOptions = parseJsonArray(data.amount_options)
+          .map(Number)
+          .filter((value) => Number.isFinite(value) && value > 0);
+        const discounts = parseDiscountMap(data.discount);
+        const stripeMinTopUp = Number(data.stripe_min_topup);
+
+        const normalizedPayMethods = parseJsonArray(data.pay_methods)
+          .filter(
+            (method) =>
+              method &&
+              typeof method === 'object' &&
+              method.name &&
+              method.type &&
+              method.type !== 'waffo',
+          )
+          .map((method, index) => {
+            const rawMinTopUp = Number(method.min_topup);
+            const methodMinTopUp =
+              method.type === 'stripe' &&
+              (!Number.isFinite(rawMinTopUp) || rawMinTopUp <= 0) &&
+              Number.isFinite(stripeMinTopUp) &&
+              stripeMinTopUp > 0
+                ? stripeMinTopUp
+                : Number.isFinite(rawMinTopUp) && rawMinTopUp > 0
+                  ? rawMinTopUp
+                  : 0;
+
+            let color = method.color;
+            if (!color) {
+              if (method.type === 'alipay') {
+                color = 'rgba(var(--semi-blue-5), 1)';
+              } else if (method.type === 'wxpay') {
+                color = 'rgba(var(--semi-green-5), 1)';
+              } else if (method.type === 'stripe') {
+                color = 'rgba(var(--semi-purple-5), 1)';
+              } else {
+                color = 'rgba(var(--semi-primary-5), 1)';
+              }
+            }
+
+            return {
+              ...method,
+              id: method.id || `${method.type}:${index}`,
+              min_topup: methodMinTopUp,
+              currency:
+                typeof method.currency === 'string' && method.currency
+                  ? method.currency
+                  : method.type === 'waffo_pancake'
+                    ? 'USD'
+                    : 'CNY',
+              color,
+            };
+          });
+        const normalizedWaffoMethods = parseJsonArray(
+          data.waffo_pay_methods,
+        ).filter(
+          (method) => method && typeof method === 'object' && method.name,
+        );
+        const onlineTopUpEnabled = Boolean(data.enable_online_topup);
+        const stripeTopUpEnabled = Boolean(data.enable_stripe_topup);
+        const creemTopUpEnabled = Boolean(data.enable_creem_topup);
+        const waffoTopUpEnabled = Boolean(data.enable_waffo_topup);
+        const waffoPancakeTopUpEnabled = Boolean(
+          data.enable_waffo_pancake_topup,
+        );
+        const normalizedWaffoMinTopUp =
+          Number(data.waffo_min_topup) > 0 ? Number(data.waffo_min_topup) : 1;
+        const normalizedWaffoPancakeMinTopUp =
+          Number(data.waffo_pancake_min_topup) > 0
+            ? Number(data.waffo_pancake_min_topup)
+            : 1;
+        const minimumCandidates = [
+          ...normalizedPayMethods.map((method) => Number(method.min_topup)),
+          waffoTopUpEnabled ? normalizedWaffoMinTopUp : null,
+          waffoPancakeTopUpEnabled ? normalizedWaffoPancakeMinTopUp : null,
+        ].filter((value) => Number.isFinite(value) && value > 0);
+        const minTopUpValue =
+          minimumCandidates.length > 0 ? Math.min(...minimumCandidates) : 1;
+
+        setPayMethods(normalizedPayMethods);
+        setEnableOnlineTopUp(onlineTopUpEnabled);
+        setEnableStripeTopUp(stripeTopUpEnabled);
+        setEnableCreemTopUp(creemTopUpEnabled);
+        setEnableWaffoTopUp(waffoTopUpEnabled);
+        setWaffoPayMethods(normalizedWaffoMethods);
+        setWaffoMinTopUp(normalizedWaffoMinTopUp);
+        setEnableWaffoPancakeTopUp(waffoPancakeTopUpEnabled);
+        setWaffoPancakeMinTopUp(normalizedWaffoPancakeMinTopUp);
+        setMinTopUp(minTopUpValue);
+        setTopUpCount(minTopUpValue);
+        setTopUpLink(data.topup_link || '');
         setTopupInfo({
-          amount_options: data.amount_options || [],
-          discount: data.discount || {},
+          amount_options: amountOptions,
+          discount: discounts,
+          topup_input_unit: normalizeTopupInputUnit(data.topup_input_unit),
+          waffo_currency:
+            typeof data.waffo_currency === 'string' && data.waffo_currency
+              ? data.waffo_currency
+              : 'USD',
+          enable_redemption: data.enable_redemption !== false,
+          payment_compliance_confirmed:
+            data.payment_compliance_confirmed !== false,
+          payment_compliance_terms_version:
+            data.payment_compliance_terms_version || '',
         });
-
-        // 处理支付方式
-        let payMethods = data.pay_methods || [];
-        try {
-          if (typeof payMethods === 'string') {
-            payMethods = JSON.parse(payMethods);
-          }
-          if (payMethods && payMethods.length > 0) {
-            // 检查name和type是否为空
-            payMethods = payMethods.filter((method) => {
-              return method.name && method.type;
-            });
-            // 如果没有color，则设置默认颜色
-            payMethods = payMethods.map((method) => {
-              // 规范化最小充值数
-              const normalizedMinTopup = Number(method.min_topup);
-              method.min_topup = Number.isFinite(normalizedMinTopup)
-                ? normalizedMinTopup
-                : 0;
-
-              // Stripe 的最小充值从后端字段回填
-              if (
-                method.type === 'stripe' &&
-                (!method.min_topup || method.min_topup <= 0)
-              ) {
-                const stripeMin = Number(data.stripe_min_topup);
-                if (Number.isFinite(stripeMin)) {
-                  method.min_topup = stripeMin;
-                }
-              }
-
-              if (!method.color) {
-                if (method.type === 'alipay') {
-                  method.color = 'rgba(var(--semi-blue-5), 1)';
-                } else if (method.type === 'wxpay') {
-                  method.color = 'rgba(var(--semi-green-5), 1)';
-                } else if (method.type === 'stripe') {
-                  method.color = 'rgba(var(--semi-purple-5), 1)';
-                } else {
-                  method.color = 'rgba(var(--semi-primary-5), 1)';
-                }
-              }
-              return method;
-            });
-          } else {
-            payMethods = [];
-          }
-
-          // 如果启用了 Stripe 支付，添加到支付方法列表
-          // 这个逻辑现在由后端处理，如果 Stripe 启用，后端会在 pay_methods 中包含它
-
-          setPayMethods(payMethods);
-          const enableStripeTopUp = data.enable_stripe_topup || false;
-          const enableOnlineTopUp = data.enable_online_topup || false;
-          const enableCreemTopUp = data.enable_creem_topup || false;
-          const enableWaffoTopUp = data.enable_waffo_topup || false;
-          const enableWaffoPancakeTopUp =
-            data.enable_waffo_pancake_topup || false;
-          const minTopUpValue = enableOnlineTopUp
-            ? data.min_topup
-            : enableStripeTopUp
-              ? data.stripe_min_topup
-              : enableWaffoTopUp
-                ? data.waffo_min_topup
-                : enableWaffoPancakeTopUp
-                  ? data.waffo_pancake_min_topup
-                  : 1;
-          setEnableOnlineTopUp(enableOnlineTopUp);
-          setEnableStripeTopUp(enableStripeTopUp);
-          setEnableCreemTopUp(enableCreemTopUp);
-          setEnableWaffoTopUp(enableWaffoTopUp);
-          setWaffoPayMethods(data.waffo_pay_methods || []);
-          setWaffoMinTopUp(data.waffo_min_topup || 1);
-          setEnableWaffoPancakeTopUp(enableWaffoPancakeTopUp);
-          setWaffoPancakeMinTopUp(data.waffo_pancake_min_topup || 1);
-          setMinTopUp(minTopUpValue);
-          setTopUpCount(minTopUpValue);
-          setTopUpLink(data.topup_link || '');
-          setTopupInfo((prev) => ({
-            ...prev,
-            enable_redemption: data.enable_redemption !== false,
-            payment_compliance_confirmed:
-              data.payment_compliance_confirmed !== false,
-            payment_compliance_terms_version:
-              data.payment_compliance_terms_version || '',
-          }));
-
-          // 设置 Creem 产品
-          try {
-            const products = JSON.parse(data.creem_products || '[]');
-            setCreemProducts(products);
-          } catch (e) {
-            setCreemProducts([]);
-          }
-
-          // 如果没有自定义充值数量选项，根据最小充值金额生成预设充值额度选项
-          if (topupInfo.amount_options.length === 0) {
-            setPresetAmounts(generatePresetAmounts(minTopUpValue));
-          }
-
-          // 初始化显示实付金额
-          getAmount(minTopUpValue);
-        } catch (e) {
-          setPayMethods([]);
-        }
-
-        // 如果有自定义充值数量选项，使用它们替换默认的预设选项
-        if (data.amount_options && data.amount_options.length > 0) {
-          const customPresets = data.amount_options.map((amount) => ({
-            value: amount,
-            discount: data.discount[amount] || 1.0,
-          }));
-          setPresetAmounts(customPresets);
-        }
+        setCreemProducts(parseJsonArray(data.creem_products));
+        setPresetAmounts(
+          amountOptions.length > 0
+            ? amountOptions.map((value) => ({
+                value,
+                discount: discounts[value] || 1,
+              }))
+            : generatePresetAmounts(minTopUpValue),
+        );
+        setSelectedPreset(null);
+        setAmount(null);
       } else {
         showError(data || t('获取充值配置失败'));
       }
@@ -791,17 +867,13 @@ const TopUp = () => {
 
   useEffect(() => {
     if (statusState?.status) {
-      // const minTopUpValue = statusState.status.min_topup || 1;
-      // setMinTopUp(minTopUpValue);
-      // setTopUpCount(minTopUpValue);
-      setPriceRatio(statusState.status.price || 1);
-
       setStatusLoading(false);
     }
   }, [statusState?.status]);
 
   const renderAmount = () => {
-    return amount + ' ' + t('元');
+    if (amount === null) return '-';
+    return formatPaymentAmount(amount, getPayMethodConfig(payWay)?.currency);
   };
 
   const getAmount = async (value) => {
@@ -816,9 +888,15 @@ const TopUp = () => {
       if (res !== undefined) {
         const { message, data } = res.data;
         if (message === 'success') {
-          setAmount(parseFloat(data));
+          const quotedAmount = parseFloat(data);
+          if (Number.isFinite(quotedAmount) && quotedAmount > 0) {
+            setAmount(quotedAmount);
+            return quotedAmount;
+          }
+          setAmount(null);
+          return null;
         } else {
-          setAmount(0);
+          setAmount(null);
           Toast.error({ content: '错误：' + data, id: 'getAmount' });
         }
       } else {
@@ -826,8 +904,10 @@ const TopUp = () => {
       }
     } catch (err) {
       // amount fetch failed silently
+    } finally {
+      setAmountLoading(false);
     }
-    setAmountLoading(false);
+    return null;
   };
 
   const getStripeAmount = async (value) => {
@@ -842,9 +922,15 @@ const TopUp = () => {
       if (res !== undefined) {
         const { message, data } = res.data;
         if (message === 'success') {
-          setAmount(parseFloat(data));
+          const quotedAmount = parseFloat(data);
+          if (Number.isFinite(quotedAmount) && quotedAmount > 0) {
+            setAmount(quotedAmount);
+            return quotedAmount;
+          }
+          setAmount(null);
+          return null;
         } else {
-          setAmount(0);
+          setAmount(null);
           Toast.error({ content: '错误：' + data, id: 'getAmount' });
         }
       } else {
@@ -855,6 +941,7 @@ const TopUp = () => {
     } finally {
       setAmountLoading(false);
     }
+    return null;
   };
 
   const handleCancel = () => {
@@ -878,20 +965,33 @@ const TopUp = () => {
     setSelectedCreemProduct(null);
   };
 
-  // 选择预设充值额度
-  const selectPresetAmount = (preset) => {
-    setTopUpCount(preset.value);
-    setSelectedPreset(preset.value);
+  const handleTopupAmountChange = async (value) => {
+    setAmount(null);
+    const normalizedValue = Number(value);
+    if (
+      !payWay ||
+      !Number.isFinite(normalizedValue) ||
+      normalizedValue < getPaymentMinTopUp(payWay)
+    ) {
+      return;
+    }
 
-    // 计算实际支付金额，考虑折扣
-    const discount = preset.discount || topupInfo.discount[preset.value] || 1.0;
-    const discountedAmount = preset.value * priceRatio * discount;
-    setAmount(discountedAmount);
+    await requestAmountByPayment(payWay, normalizedValue);
   };
 
-  // 格式化大数字显示
-  const formatLargeNumber = (num) => {
-    return num.toString();
+  // 选择预设充值额度
+  const selectPresetAmount = async (preset) => {
+    const normalizedValue = Number(preset.value);
+    if (!Number.isFinite(normalizedValue) || normalizedValue <= 0) {
+      return;
+    }
+
+    setTopUpCount(normalizedValue);
+    setSelectedPreset(normalizedValue);
+    setAmount(null);
+    if (payWay && normalizedValue >= getPaymentMinTopUp(payWay)) {
+      await requestAmountByPayment(payWay, normalizedValue);
+    }
   };
 
   // 根据最小充值金额生成预设充值额度选项
@@ -925,13 +1025,14 @@ const TopUp = () => {
         handleCancel={handleCancel}
         confirmLoading={confirmLoading}
         topUpCount={topUpCount}
-        renderQuotaWithAmount={renderQuotaWithAmount}
         amountLoading={amountLoading}
-        renderAmount={renderAmount}
         payWay={payWay}
         payMethods={confirmPayMethods}
         amountNumber={amount}
-        discountRate={topupInfo?.discount?.[topUpCount] || 1.0}
+        topupInputUnit={topupInfo.topup_input_unit}
+        discountRate={
+          payWay === 'stripe' ? 1 : topupInfo?.discount?.[topUpCount] || 1
+        }
       />
 
       {/* 充值账单模态框 */}
@@ -983,13 +1084,10 @@ const TopUp = () => {
           presetAmounts={presetAmounts}
           selectedPreset={selectedPreset}
           selectPresetAmount={selectPresetAmount}
-          formatLargeNumber={formatLargeNumber}
-          priceRatio={priceRatio}
           topUpCount={topUpCount}
           minTopUp={minTopUp}
-          renderQuotaWithAmount={renderQuotaWithAmount}
-          getAmount={getAmount}
           setTopUpCount={setTopUpCount}
+          onTopupAmountChange={handleTopupAmountChange}
           setSelectedPreset={setSelectedPreset}
           renderAmount={renderAmount}
           amountLoading={amountLoading}

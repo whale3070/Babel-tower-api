@@ -128,4 +128,12 @@ export const ERROR_MESSAGES = {
 export const STORAGE_KEYS = {
   CONFIG: 'playground_config',
   MESSAGES: 'playground_messages',
+  CONVERSATIONS: 'playground_conversations',
+  CURRENT_CONVERSATION_ID: 'playground_current_conversation_id',
 };
+
+// ========== 会话相关默认值 ==========
+// 新对话的默认标题（在首条用户消息发出前显示）
+export const DEFAULT_CONVERSATION_TITLE = '新对话';
+// 自动标题截取长度（取首条用户消息前 N 字）
+export const CONVERSATION_TITLE_MAX_LENGTH = 30;

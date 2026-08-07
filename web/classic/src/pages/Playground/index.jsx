@@ -20,7 +20,7 @@ For commercial licensing, please contact support@quantumnous.com
 import React, { useContext, useEffect, useCallback, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Layout, Toast, Modal } from '@douyinfe/semi-ui';
+import { Layout, Toast, Modal, Tabs } from '@douyinfe/semi-ui';
 
 // Context
 import { UserContext } from '../../context/User';
@@ -59,6 +59,7 @@ import {
 } from '../../components/playground/OptimizedComponents';
 import ChatArea from '../../components/playground/ChatArea';
 import ConversationToc from '../../components/playground/ConversationToc';
+import ConversationList from '../../components/playground/ConversationList';
 import FloatingButtons from '../../components/playground/FloatingButtons';
 import { PlaygroundProvider } from '../../contexts/PlaygroundContext';
 
@@ -84,6 +85,7 @@ const Playground = () => {
   const isMobile = useIsMobile();
   const styleState = { isMobile };
   const [showConversationToc, setShowConversationToc] = useState(() => !isMobile);
+  const [leftPanelTab, setLeftPanelTab] = useState('conversations');
   const [searchParams] = useSearchParams();
 
   const state = usePlaygroundState();
@@ -120,6 +122,13 @@ const Playground = () => {
     setShowDebugPanel,
     setCustomRequestMode,
     setCustomRequestBody,
+    conversations,
+    currentConversationId,
+    createConversation,
+    switchConversation,
+    deleteConversation,
+    deleteConversations,
+    renameConversation,
   } = state;
 
   // API 请求相关
@@ -486,26 +495,59 @@ const Playground = () => {
             `}
               width={isMobile ? '100%' : 320}
             >
-              <OptimizedSettingsPanel
-                inputs={inputs}
-                parameterEnabled={parameterEnabled}
-                models={models}
-                groups={groups}
-                styleState={styleState}
-                showSettings={showSettings}
-                showDebugPanel={showDebugPanel}
-                customRequestMode={customRequestMode}
-                customRequestBody={customRequestBody}
-                onInputChange={handleInputChange}
-                onParameterToggle={handleParameterToggle}
-                onCloseSettings={() => setShowSettings(false)}
-                onConfigImport={handleConfigImport}
-                onConfigReset={handleConfigReset}
-                onCustomRequestModeChange={setCustomRequestMode}
-                onCustomRequestBodyChange={setCustomRequestBody}
-                previewPayload={previewPayload}
-                messages={message}
-              />
+              <div className='flex h-full flex-col'>
+                {/* 顶部 Tab 切换：对话 / 设置 */}
+                <div className='px-2 pt-2 bg-white border-b border-gray-100'>
+                  <Tabs
+                    type='button'
+                    activeKey={leftPanelTab}
+                    onChange={(key) => setLeftPanelTab(key)}
+                    style={{ borderBottom: 'none' }}
+                  >
+                    <Tabs.TabPane tab={t('对话')} itemKey='conversations' />
+                    <Tabs.TabPane tab={t('设置')} itemKey='settings' />
+                  </Tabs>
+                </div>
+
+                {/* 内容区 */}
+                <div className='flex-1 overflow-hidden'>
+                  {leftPanelTab === 'conversations' ? (
+                    <ConversationList
+                      conversations={conversations}
+                      currentConversationId={currentConversationId}
+                      onCreate={createConversation}
+                      onSwitch={(id) => {
+                        switchConversation(id);
+                        if (isMobile) setShowSettings(false);
+                      }}
+                      onDelete={deleteConversation}
+                      onDeleteBatch={deleteConversations}
+                      onRename={renameConversation}
+                    />
+                  ) : (
+                    <OptimizedSettingsPanel
+                      inputs={inputs}
+                      parameterEnabled={parameterEnabled}
+                      models={models}
+                      groups={groups}
+                      styleState={styleState}
+                      showSettings={showSettings}
+                      showDebugPanel={showDebugPanel}
+                      customRequestMode={customRequestMode}
+                      customRequestBody={customRequestBody}
+                      onInputChange={handleInputChange}
+                      onParameterToggle={handleParameterToggle}
+                      onCloseSettings={() => setShowSettings(false)}
+                      onConfigImport={handleConfigImport}
+                      onConfigReset={handleConfigReset}
+                      onCustomRequestModeChange={setCustomRequestMode}
+                      onCustomRequestBodyChange={setCustomRequestBody}
+                      previewPayload={previewPayload}
+                      messages={message}
+                    />
+                  )}
+                </div>
+              </div>
             </Layout.Sider>
           )}
 
@@ -591,7 +633,14 @@ const Playground = () => {
               showSettings={showSettings}
               showDebugPanel={showDebugPanel}
               showConversationToc={showConversationToc}
-              onToggleSettings={() => setShowSettings(!showSettings)}
+              onToggleSettings={() => {
+                setLeftPanelTab('settings');
+                setShowSettings(!showSettings);
+              }}
+              onOpenConversations={() => {
+                setLeftPanelTab('conversations');
+                setShowSettings(true);
+              }}
               onToggleDebugPanel={() => setShowDebugPanel(!showDebugPanel)}
               onToggleConversationToc={() =>
                 setShowConversationToc(!showConversationToc)

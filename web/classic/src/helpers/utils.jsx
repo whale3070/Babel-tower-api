@@ -906,7 +906,7 @@ export const formatDynamicPriceSummary = (billingExpr, t, groupRatio = 1) => {
     const s = JSON.parse(localStorage.getItem('status') || '{}');
     if (quotaDisplayType === 'CNY') {
       symbol = '¥';
-      rate = s?.usd_exchange_rate || 7;
+      rate = 1;
     } else if (quotaDisplayType === 'CUSTOM') {
       symbol = s?.custom_currency_symbol || '¤';
       rate = s?.custom_currency_exchange_rate || 1;

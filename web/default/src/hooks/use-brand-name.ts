@@ -22,7 +22,7 @@ import { useSystemConfig } from '@/hooks/use-system-config'
 import { useStatus } from '@/hooks/use-status'
 
 export function useBrandName() {
-  const { t, i18n } = useTranslation()
+  const { t } = useTranslation()
   const { systemName } = useSystemConfig()
   const { status } = useStatus()
 

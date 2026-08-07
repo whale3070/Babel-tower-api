@@ -55,15 +55,12 @@ export const useModelPricingData = () => {
   const [statusState] = useContext(StatusContext);
   const [userState] = useContext(UserContext);
 
-  // 充值汇率（price）与美元兑人民币汇率（usd_exchange_rate）
+  // CNY display uses the same numeric denomination as internal quota.
   const priceRate = useMemo(
     () => statusState?.status?.price ?? 1,
     [statusState],
   );
-  const usdExchangeRate = useMemo(
-    () => statusState?.status?.usd_exchange_rate ?? priceRate,
-    [statusState, priceRate],
-  );
+  const usdExchangeRate = 1;
   const customExchangeRate = useMemo(
     () => statusState?.status?.custom_currency_exchange_rate ?? 1,
     [statusState],

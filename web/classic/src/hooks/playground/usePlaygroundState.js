@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   DEFAULT_MESSAGES,
@@ -25,42 +25,72 @@ import {
   DEFAULT_CONFIG,
   DEBUG_TABS,
   MESSAGE_STATUS,
+  DEFAULT_CONVERSATION_TITLE,
 } from '../../constants/playground.constants';
 import {
   loadConfig,
   saveConfig,
   loadMessages,
   saveMessages,
+  loadConversations,
+  saveConversations,
+  loadCurrentConversationId,
+  saveCurrentConversationId,
+  createConversationObject,
+  deriveConversationTitle,
 } from '../../components/playground/configStorage';
 import { processIncompleteThinkTags } from '../../helpers';
+
+// 旧版 playground_messages 可能存的是远古默认示例；这种情况下不要迁移为会话
+const isLegacyDefaultMessages = (msgs) => {
+  if (!Array.isArray(msgs) || msgs.length !== 2) return false;
+  if (msgs[0]?.id !== '2' || msgs[1]?.id !== '3') return false;
+  const samples = [
+    'Hello',
+    'Hello! How can I help you today?',
+    '你好',
+    '你好，请问有什么可以帮助您的吗？',
+    '你好，有什么我可以帮助你的吗？',
+    '你好！很高兴见到你。有什么我可以帮助你的吗？',
+  ];
+  return (
+    samples.includes(String(msgs[0]?.content || '')) ||
+    samples.includes(String(msgs[1]?.content || ''))
+  );
+};
+
+// 集中初始化会话相关状态：返回 { list, currentId, messages }
+const initializeConversations = () => {
+  let list = loadConversations();
+
+  // 若列表为空，且旧 messages 也是空或者是远古默认示例，则创建一条空白会话作为起点
+  if (list.length === 0) {
+    const fresh = createConversationObject();
+    list = [fresh];
+    saveConversations(list);
+    saveCurrentConversationId(fresh.id);
+    return { list, currentId: fresh.id, messages: [] };
+  }
+
+  let currentId = loadCurrentConversationId();
+  if (!currentId || !list.some((c) => c.id === currentId)) {
+    currentId = list[0].id;
+    saveCurrentConversationId(currentId);
+  }
+  const current = list.find((c) => c.id === currentId);
+  const messages = current ? Array.isArray(current.messages) ? [...current.messages] : [] : [];
+  return { list, currentId, messages };
+};
 
 export const usePlaygroundState = () => {
   const { t } = useTranslation();
 
-  // 使用惰性初始化，确保只在组件首次挂载时加载配置和消息
+  // 配置仍然独立加载
   const [savedConfig] = useState(() => loadConfig());
-  const [initialMessages] = useState(() => {
-    const loaded = loadMessages();
-    // 检查是否是旧的中文默认消息，如果是则清除
-    if (
-      loaded &&
-      loaded.length === 2 &&
-      loaded[0].id === '2' &&
-      loaded[1].id === '3'
-    ) {
-      const hasOldChinese =
-        loaded[0].content === '你好' ||
-        loaded[1].content === '你好，请问有什么可以帮助您的吗？' ||
-        loaded[1].content === '你好！很高兴见到你。有什么我可以帮助你的吗？';
 
-      if (hasOldChinese) {
-        // 清除旧的默认消息
-        localStorage.removeItem('playground_messages');
-        return null;
-      }
-    }
-    return loaded;
-  });
+  // 会话与消息集中初始化（避免 useState 间互相依赖）
+  const [{ list: initConvList, currentId: initCurrentId, messages: initMessages }] =
+    useState(initializeConversations);
 
   // 基础配置状态
   const [inputs, setInputs] = useState(
@@ -85,18 +115,19 @@ export const usePlaygroundState = () => {
   const [groups, setGroups] = useState([]);
   const [status, setStatus] = useState({});
 
-  // 消息相关状态 - 使用加载的消息或默认消息初始化
-  const [message, setMessage] = useState(
-    () => initialMessages || getDefaultMessages(t),
-  );
+  // 会话状态
+  const [conversations, setConversations] = useState(initConvList);
+  const [currentConversationId, setCurrentConversationId] =
+    useState(initCurrentId);
 
-  // 当语言改变时，如果是默认消息则更新
-  useEffect(() => {
-    // 只在没有保存的消息时才更新默认消息
-    if (!initialMessages) {
-      setMessage(getDefaultMessages(t));
-    }
-  }, [t, initialMessages]); // 当语言改变时
+  // 当前会话的消息（派生自当前会话，切换会话时整体替换）
+  const [message, setMessage] = useState(initMessages);
+
+  // 当前会话对象（用于 UI 显示标题等）
+  const currentConversation = useMemo(
+    () => conversations.find((c) => c.id === currentConversationId) || null,
+    [conversations, currentConversationId],
+  );
 
   // 调试状态
   const [debugData, setDebugData] = useState({
@@ -131,13 +162,37 @@ export const usePlaygroundState = () => {
     }));
   }, []);
 
-  // 消息保存函数 - 改为立即保存，可以接受参数
+  // 消息保存函数：将当前消息同步到当前会话并持久化
   const saveMessagesImmediately = useCallback(
     (messagesToSave) => {
-      // 如果提供了参数，使用参数；否则使用当前状态
-      saveMessages(messagesToSave || message);
+      const msgs = messagesToSave || message;
+      setConversations((prev) => {
+        const idx = prev.findIndex((c) => c.id === currentConversationId);
+        if (idx === -1) {
+          return prev;
+        }
+        const oldConv = prev[idx];
+        const nextConv = {
+          ...oldConv,
+          messages: msgs,
+          updatedAt: Date.now(),
+          title:
+            (oldConv.title === DEFAULT_CONVERSATION_TITLE ||
+              !oldConv.title) &&
+            Array.isArray(msgs) &&
+            msgs.length > 0
+              ? deriveConversationTitle(msgs)
+              : oldConv.title,
+        };
+        const next = [...prev];
+        next[idx] = nextConv;
+        saveConversations(next);
+        return next;
+      });
+      // 同时写旧 key 以兼容外部读取（ConfigManager 导出等）
+      saveMessages(msgs);
     },
-    [message],
+    [message, currentConversationId],
   );
 
   // 配置保存
@@ -164,56 +219,166 @@ export const usePlaygroundState = () => {
     customRequestBody,
   ]);
 
+  // ========== 会话增删改切换 ==========
+
+  // 新建空会话并切到该会话。可重复调用，每次都会新增一条。
+  const createConversation = useCallback(() => {
+    const conv = createConversationObject();
+    setConversations((prev) => {
+      const next = [conv, ...prev];
+      saveConversations(next);
+      return next;
+    });
+    setCurrentConversationId(conv.id);
+    saveCurrentConversationId(conv.id);
+    setMessage([]);
+    return conv.id;
+  }, []);
+
+  // 切换到指定会话
+  const switchConversation = useCallback(
+    (id) => {
+      if (!id || id === currentConversationId) return;
+      const target = conversations.find((c) => c.id === id);
+      if (!target) return;
+      setCurrentConversationId(id);
+      saveCurrentConversationId(id);
+      setMessage(Array.isArray(target.messages) ? [...target.messages] : []);
+    },
+    [conversations, currentConversationId],
+  );
+
+  // 删除单个会话；若删的是当前会话，自动切到最近一条，没有则新建空会话
+  const deleteConversation = useCallback(
+    (id) => {
+      if (!id) return;
+      const nextList = conversations.filter((c) => c.id !== id);
+      setConversations(nextList);
+      saveConversations(nextList);
+
+      if (id !== currentConversationId) return;
+
+      if (nextList.length === 0) {
+        const fresh = createConversationObject();
+        setConversations([fresh]);
+        saveConversations([fresh]);
+        setCurrentConversationId(fresh.id);
+        saveCurrentConversationId(fresh.id);
+        setMessage([]);
+      } else {
+        const next = nextList[0];
+        setCurrentConversationId(next.id);
+        saveCurrentConversationId(next.id);
+        setMessage(Array.isArray(next.messages) ? [...next.messages] : []);
+      }
+    },
+    [conversations, currentConversationId],
+  );
+
+  // 批量删除
+  const deleteConversations = useCallback(
+    (ids) => {
+      if (!Array.isArray(ids) || ids.length === 0) return;
+      const idSet = new Set(ids);
+      const nextList = conversations.filter((c) => !idSet.has(c.id));
+      setConversations(nextList);
+      saveConversations(nextList);
+
+      if (!idSet.has(currentConversationId)) return;
+
+      if (nextList.length === 0) {
+        const fresh = createConversationObject();
+        setConversations([fresh]);
+        saveConversations([fresh]);
+        setCurrentConversationId(fresh.id);
+        saveCurrentConversationId(fresh.id);
+        setMessage([]);
+      } else {
+        const next = nextList[0];
+        setCurrentConversationId(next.id);
+        saveCurrentConversationId(next.id);
+        setMessage(Array.isArray(next.messages) ? [...next.messages] : []);
+      }
+    },
+    [conversations, currentConversationId],
+  );
+
+  // 重命名
+  const renameConversation = useCallback((id, title) => {
+    const cleaned = (title || '').trim().slice(0, 100);
+    const newTitle = cleaned || DEFAULT_CONVERSATION_TITLE;
+    setConversations((prev) => {
+      const idx = prev.findIndex((c) => c.id === id);
+      if (idx === -1) return prev;
+      const next = [...prev];
+      next[idx] = {
+        ...next[idx],
+        title: newTitle,
+        updatedAt: Date.now(),
+      };
+      saveConversations(next);
+      return next;
+    });
+  }, []);
+
   // 配置导入/重置
-  const handleConfigImport = useCallback((importedConfig) => {
-    if (importedConfig.inputs) {
-      const parsedMaxTokens = parseInt(importedConfig.inputs.max_tokens, 10);
-      setInputs((prev) => ({
-        ...prev,
-        ...importedConfig.inputs,
-        max_tokens: Number.isNaN(parsedMaxTokens)
-          ? importedConfig.inputs.max_tokens
-          : parsedMaxTokens,
-      }));
-    }
-    if (importedConfig.parameterEnabled) {
-      setParameterEnabled((prev) => ({
-        ...prev,
-        ...importedConfig.parameterEnabled,
-      }));
-    }
-    if (typeof importedConfig.showDebugPanel === 'boolean') {
-      setShowDebugPanel(importedConfig.showDebugPanel);
-    }
-    if (importedConfig.customRequestMode) {
-      setCustomRequestMode(importedConfig.customRequestMode);
-    }
-    if (importedConfig.customRequestBody) {
-      setCustomRequestBody(importedConfig.customRequestBody);
-    }
-    // 如果导入的配置包含消息，也恢复消息
-    if (importedConfig.messages && Array.isArray(importedConfig.messages)) {
-      setMessage(importedConfig.messages);
-    }
-  }, []);
+  const handleConfigImport = useCallback(
+    (importedConfig) => {
+      if (importedConfig.inputs) {
+        const parsedMaxTokens = parseInt(importedConfig.inputs.max_tokens, 10);
+        setInputs((prev) => ({
+          ...prev,
+          ...importedConfig.inputs,
+          max_tokens: Number.isNaN(parsedMaxTokens)
+            ? importedConfig.inputs.max_tokens
+            : parsedMaxTokens,
+        }));
+      }
+      if (importedConfig.parameterEnabled) {
+        setParameterEnabled((prev) => ({
+          ...prev,
+          ...importedConfig.parameterEnabled,
+        }));
+      }
+      if (typeof importedConfig.showDebugPanel === 'boolean') {
+        setShowDebugPanel(importedConfig.showDebugPanel);
+      }
+      if (importedConfig.customRequestMode) {
+        setCustomRequestMode(importedConfig.customRequestMode);
+      }
+      if (importedConfig.customRequestBody) {
+        setCustomRequestBody(importedConfig.customRequestBody);
+      }
+      // 如果导入的配置包含消息，写入当前会话
+      if (importedConfig.messages && Array.isArray(importedConfig.messages)) {
+        setMessage(importedConfig.messages);
+        setTimeout(
+          () => saveMessagesImmediately(importedConfig.messages),
+          0,
+        );
+      }
+    },
+    [saveMessagesImmediately],
+  );
 
-  const handleConfigReset = useCallback((options = {}) => {
-    const { resetMessages = false } = options;
+  const handleConfigReset = useCallback(
+    (options = {}) => {
+      const { resetMessages = false } = options;
 
-    setInputs(DEFAULT_CONFIG.inputs);
-    setParameterEnabled(DEFAULT_CONFIG.parameterEnabled);
-    setShowDebugPanel(DEFAULT_CONFIG.showDebugPanel);
-    setCustomRequestMode(DEFAULT_CONFIG.customRequestMode);
-    setCustomRequestBody(DEFAULT_CONFIG.customRequestBody);
+      setInputs(DEFAULT_CONFIG.inputs);
+      setParameterEnabled(DEFAULT_CONFIG.parameterEnabled);
+      setShowDebugPanel(DEFAULT_CONFIG.showDebugPanel);
+      setCustomRequestMode(DEFAULT_CONFIG.customRequestMode);
+      setCustomRequestBody(DEFAULT_CONFIG.customRequestBody);
 
-    // 只有在明确指定时才重置消息
-    if (resetMessages) {
-      setMessage([]);
-      setTimeout(() => {
-        setMessage(getDefaultMessages(t));
-      }, 0);
-    }
-  }, []);
+      // 重置消息=清空当前会话
+      if (resetMessages) {
+        setMessage([]);
+        setTimeout(() => saveMessagesImmediately([]), 0);
+      }
+    },
+    [saveMessagesImmediately],
+  );
 
   // 清理定时器
   useEffect(() => {
@@ -252,6 +417,8 @@ export const usePlaygroundState = () => {
       // 保存修复后的消息列表
       setTimeout(() => saveMessagesImmediately(updatedMessages), 0);
     }
+    // 只在挂载时执行一次
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return {
@@ -268,7 +435,10 @@ export const usePlaygroundState = () => {
     groups,
     status,
 
-    // 消息状态
+    // 会话状态
+    conversations,
+    currentConversationId,
+    currentConversation,
     message,
 
     // 调试状态
@@ -296,6 +466,8 @@ export const usePlaygroundState = () => {
     setGroups,
     setStatus,
     setMessage,
+    setConversations,
+    setCurrentConversationId,
     setDebugData,
     setActiveDebugTab,
     setPreviewPayload,
@@ -309,5 +481,12 @@ export const usePlaygroundState = () => {
     saveMessagesImmediately,
     handleConfigImport,
     handleConfigReset,
+
+    // 会话操作
+    createConversation,
+    switchConversation,
+    deleteConversation,
+    deleteConversations,
+    renameConversation,
   };
 };

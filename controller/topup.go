@@ -25,7 +25,29 @@ func GetTopUpInfo(c *gin.Context) {
 	complianceConfirmed := operation_setting.IsPaymentComplianceConfirmed()
 
 	// 获取支付方式
-	payMethods := operation_setting.PayMethods
+	payMethods := make([]map[string]string, 0, len(operation_setting.PayMethods)+3)
+	for _, method := range operation_setting.PayMethods {
+		clonedMethod := make(map[string]string, len(method))
+		for key, value := range method {
+			clonedMethod[key] = value
+		}
+		if clonedMethod["currency"] == "" {
+			switch clonedMethod["type"] {
+			case model.PaymentMethodWaffo:
+				clonedMethod["currency"] = getWaffoCurrency()
+			case model.PaymentMethodWaffoPancake:
+				clonedMethod["currency"] = "USD"
+			default:
+				clonedMethod["currency"] = "CNY"
+			}
+		}
+		if operation_setting.GetQuotaDisplayType() == operation_setting.QuotaDisplayTypeTokens {
+			if minTopup, err := strconv.Atoi(clonedMethod["min_topup"]); err == nil && minTopup > 0 {
+				clonedMethod["min_topup"] = strconv.FormatInt(normalizeTopupMinimum(minTopup), 10)
+			}
+		}
+		payMethods = append(payMethods, clonedMethod)
+	}
 	if !complianceConfirmed {
 		payMethods = []map[string]string{}
 	}
@@ -46,7 +68,8 @@ func GetTopUpInfo(c *gin.Context) {
 				"name":      "Stripe",
 				"type":      "stripe",
 				"color":     "rgba(var(--semi-purple-5), 1)",
-				"min_topup": strconv.Itoa(setting.StripeMinTopUp),
+				"min_topup": strconv.FormatInt(getStripeMinTopup(), 10),
+				"currency":  "CNY",
 			}
 			payMethods = append(payMethods, stripeMethod)
 		}
@@ -68,7 +91,8 @@ func GetTopUpInfo(c *gin.Context) {
 				"name":      "Waffo Pancake",
 				"type":      model.PaymentMethodWaffoPancake,
 				"color":     "rgba(var(--semi-orange-5), 1)",
-				"min_topup": strconv.Itoa(setting.WaffoPancakeMinTopUp),
+				"min_topup": strconv.FormatInt(getWaffoPancakeMinTopup(), 10),
+				"currency":  "USD",
 			})
 		}
 	}
@@ -89,10 +113,17 @@ func GetTopUpInfo(c *gin.Context) {
 				"name":      "Waffo (Global Payment)",
 				"type":      model.PaymentMethodWaffo,
 				"color":     "rgba(var(--semi-blue-5), 1)",
-				"min_topup": strconv.Itoa(setting.WaffoMinTopUp),
+				"min_topup": strconv.FormatInt(getWaffoMinTopup(), 10),
+				"currency":  getWaffoCurrency(),
 			}
 			payMethods = append(payMethods, waffoMethod)
 		}
+	}
+
+	discounts := operation_setting.GetPaymentSetting().AmountDiscount
+	if operation_setting.GetQuotaDisplayType() == operation_setting.QuotaDisplayTypeCNY {
+		// CNY tiers are fixed face values; a ¥10 tier always charges and credits 10.
+		discounts = map[int]float64{}
 	}
 
 	data := gin.H{
@@ -110,14 +141,16 @@ func GetTopUpInfo(c *gin.Context) {
 			}
 			return nil
 		}(),
+		"waffo_currency":          getWaffoCurrency(),
 		"creem_products":          setting.CreemProducts,
 		"pay_methods":             payMethods,
-		"min_topup":               operation_setting.MinTopUp,
-		"stripe_min_topup":        setting.StripeMinTopUp,
-		"waffo_min_topup":         setting.WaffoMinTopUp,
-		"waffo_pancake_min_topup": setting.WaffoPancakeMinTopUp,
+		"min_topup":               getMinTopup(),
+		"stripe_min_topup":        getStripeMinTopup(),
+		"waffo_min_topup":         getWaffoMinTopup(),
+		"waffo_pancake_min_topup": getWaffoPancakeMinTopup(),
 		"amount_options":          operation_setting.GetPaymentSetting().AmountOptions,
-		"discount":                operation_setting.GetPaymentSetting().AmountDiscount,
+		"discount":                discounts,
+		"topup_input_unit":        getTopupInputUnit(),
 		"topup_link":              common.TopUpLink,
 	}
 	common.ApiSuccess(c, data)
@@ -147,13 +180,13 @@ func GetEpayClient() *epay.Client {
 }
 
 func getPayMoney(amount int64, group string) float64 {
-	dAmount := decimal.NewFromInt(amount)
-	// 充值金额以“展示类型”为准：
-	// - USD/CNY: 前端传 amount 为金额单位；TOKENS: 前端传 tokens，需要换成 USD 金额
-	if operation_setting.GetQuotaDisplayType() == operation_setting.QuotaDisplayTypeTokens {
-		dQuotaPerUnit := decimal.NewFromFloat(common.QuotaPerUnit)
-		dAmount = dAmount.Div(dQuotaPerUnit)
+	if operation_setting.GetQuotaDisplayType() == operation_setting.QuotaDisplayTypeCNY {
+		return decimal.NewFromInt(amount).InexactFloat64()
 	}
+
+	dAmount := getTopupUSDAmount(amount)
+	// 易支付以 CNY 结算。非 CNY 输入仍按 Price 将系统额度换算为人民币。
+	dPrice := decimal.NewFromFloat(operation_setting.Price)
 
 	topupGroupRatio := common.GetTopupGroupRatio(group)
 	if topupGroupRatio == 0 {
@@ -161,7 +194,6 @@ func getPayMoney(amount int64, group string) float64 {
 	}
 
 	dTopupGroupRatio := decimal.NewFromFloat(topupGroupRatio)
-	dPrice := decimal.NewFromFloat(operation_setting.Price)
 	// apply optional preset discount by the original request amount (if configured), default 1.0
 	discount := 1.0
 	if ds, ok := operation_setting.GetPaymentSetting().AmountDiscount[int(amount)]; ok {
@@ -177,13 +209,62 @@ func getPayMoney(amount int64, group string) float64 {
 }
 
 func getMinTopup() int64 {
-	minTopup := operation_setting.MinTopUp
-	if operation_setting.GetQuotaDisplayType() == operation_setting.QuotaDisplayTypeTokens {
-		dMinTopup := decimal.NewFromInt(int64(minTopup))
-		dQuotaPerUnit := decimal.NewFromFloat(common.QuotaPerUnit)
-		minTopup = int(dMinTopup.Mul(dQuotaPerUnit).IntPart())
+	return normalizeTopupMinimum(operation_setting.MinTopUp)
+}
+
+// getTopupInputUnit describes the unit accepted by all amount/quote/payment
+// endpoints. The amount uses the configured wallet display unit, so a CNY
+// site submits CNY (for example, 10 means ¥10 rather than $10).
+func getTopupInputUnit() string {
+	switch operation_setting.GetQuotaDisplayType() {
+	case operation_setting.QuotaDisplayTypeCNY,
+		operation_setting.QuotaDisplayTypeTokens,
+		operation_setting.QuotaDisplayTypeCustom:
+		return operation_setting.GetQuotaDisplayType()
+	default:
+		return operation_setting.QuotaDisplayTypeUSD
 	}
-	return int64(minTopup)
+}
+
+// getTopupUSDAmount converts a user-entered amount into the system's USD
+// credit unit without applying payment-provider pricing, group ratios, or
+// preset discounts.
+func getTopupUSDAmount(amount int64) decimal.Decimal {
+	dAmount := decimal.NewFromInt(amount)
+	switch operation_setting.GetQuotaDisplayType() {
+	case operation_setting.QuotaDisplayTypeTokens:
+		quotaPerUnit := decimal.NewFromFloat(common.QuotaPerUnit)
+		if quotaPerUnit.IsPositive() {
+			return dAmount.Div(quotaPerUnit)
+		}
+	case operation_setting.QuotaDisplayTypeCustom:
+		rate := operation_setting.GetUsdToCurrencyRate()
+		if rate > 0 {
+			return dAmount.Div(decimal.NewFromFloat(rate))
+		}
+	}
+
+	return dAmount
+}
+
+func normalizeTopupMinimum(minTopup int) int64 {
+	if operation_setting.GetQuotaDisplayType() != operation_setting.QuotaDisplayTypeTokens {
+		return int64(minTopup)
+	}
+
+	return decimal.NewFromInt(int64(minTopup)).
+		Mul(decimal.NewFromFloat(common.QuotaPerUnit)).
+		IntPart()
+}
+
+func getTopupCreditedQuota(amount int64) int64 {
+	if operation_setting.GetQuotaDisplayType() == operation_setting.QuotaDisplayTypeTokens {
+		return amount
+	}
+
+	return getTopupUSDAmount(amount).
+		Mul(decimal.NewFromFloat(common.QuotaPerUnit)).
+		IntPart()
 }
 
 func RequestEpay(c *gin.Context) {
@@ -249,6 +330,9 @@ func RequestEpay(c *gin.Context) {
 		UserId:          id,
 		Amount:          amount,
 		Money:           payMoney,
+		CreditedQuota:   getTopupCreditedQuota(req.Amount),
+		PaymentAmount:   payMoney,
+		PaymentCurrency: "CNY",
 		TradeNo:         tradeNo,
 		PaymentMethod:   req.PaymentMethod,
 		PaymentProvider: model.PaymentProviderEpay,
@@ -395,9 +479,7 @@ func EpayNotify(c *gin.Context) {
 			}
 			//user, _ := model.GetUserById(topUp.UserId, false)
 			//user.Quota += topUp.Amount * 500000
-			dAmount := decimal.NewFromInt(int64(topUp.Amount))
-			dQuotaPerUnit := decimal.NewFromFloat(common.QuotaPerUnit)
-			quotaToAdd := int(dAmount.Mul(dQuotaPerUnit).IntPart())
+			quotaToAdd := int(topUp.GetCreditedQuota())
 			err = model.IncreaseUserQuota(topUp.UserId, quotaToAdd, true)
 			if err != nil {
 				logger.LogError(c.Request.Context(), fmt.Sprintf("易支付 更新用户额度失败 trade_no=%s user_id=%d client_ip=%s quota_to_add=%d error=%q topup=%q", topUp.TradeNo, topUp.UserId, c.ClientIP(), quotaToAdd, err.Error(), common.GetJsonString(topUp)))

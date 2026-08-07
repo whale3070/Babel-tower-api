@@ -27,7 +27,6 @@ import {
   useEffect,
   useState,
 } from 'react'
-import type { Element } from 'hast'
 import { CheckIcon, CopyIcon } from 'lucide-react'
 import {
   type BundledLanguage,
@@ -36,6 +35,8 @@ import {
 } from 'shiki/bundle/web'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
+
+type ShikiLineNode = Parameters<NonNullable<ShikiTransformer['line']>>[0]
 
 type CodeBlockProps = HTMLAttributes<HTMLDivElement> & {
   code: string
@@ -53,7 +54,7 @@ const CodeBlockContext = createContext<CodeBlockContextType>({
 
 const lineNumberTransformer: ShikiTransformer = {
   name: 'line-numbers',
-  line(node: Element, line: number) {
+  line(node: ShikiLineNode, line: number) {
     node.children.unshift({
       type: 'element',
       tagName: 'span',

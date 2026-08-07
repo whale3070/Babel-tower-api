@@ -73,13 +73,14 @@ func GetCurrencySymbol() string {
 	}
 }
 
-// GetUsdToCurrencyRate 返回 1 USD = X <currency> 的 X（TOKENS 不适用）
-func GetUsdToCurrencyRate(usdToCny float64) float64 {
+// GetUsdToCurrencyRate returns the multiplier used by custom currencies.
+// CNY quota is intentionally denominated 1:1 and has no exchange-rate setting.
+func GetUsdToCurrencyRate() float64 {
 	switch generalSetting.QuotaDisplayType {
 	case QuotaDisplayTypeUSD:
 		return 1
 	case QuotaDisplayTypeCNY:
-		return usdToCny
+		return 1
 	case QuotaDisplayTypeCustom:
 		if generalSetting.CustomCurrencyExchangeRate > 0 {
 			return generalSetting.CustomCurrencyExchangeRate
