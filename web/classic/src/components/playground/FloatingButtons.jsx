@@ -19,7 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 
 import React from 'react';
 import { Button } from '@douyinfe/semi-ui';
-import { Settings, Eye, EyeOff, ListTree } from 'lucide-react';
+import { Settings, Eye, EyeOff, ListTree, MessageSquare } from 'lucide-react';
 
 const FloatingButtons = ({
   styleState,
@@ -27,6 +27,7 @@ const FloatingButtons = ({
   showDebugPanel,
   showConversationToc,
   onToggleSettings,
+  onOpenConversations,
   onToggleDebugPanel,
   onToggleConversationToc,
 }) => {
@@ -34,6 +35,30 @@ const FloatingButtons = ({
 
   return (
     <>
+      {/* 会话列表按钮 */}
+      {!showSettings && (
+        <Button
+          icon={<MessageSquare size={18} />}
+          style={{
+            position: 'fixed',
+            right: 16,
+            bottom: 240,
+            zIndex: 1000,
+            width: 36,
+            height: 36,
+            borderRadius: '50%',
+            padding: 0,
+            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.2)',
+            background: 'linear-gradient(to right, #8b5cf6, #6366f1)',
+          }}
+          onClick={onOpenConversations}
+          theme='solid'
+          type='primary'
+          aria-label='打开会话列表'
+          className='lg:hidden'
+        />
+      )}
+
       {/* 设置按钮 */}
       {!showSettings && (
         <Button

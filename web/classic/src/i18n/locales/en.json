@@ -3831,6 +3831,26 @@
     "并确认自行承担部署": "confirm that I bear legal responsibility arising from deployment",
     "运营和收费行为产生的法律责任": "operation and charging behavior",
     "，": ", ",
-    "、": ", "
+    "、": ", ",
+    "对话列表": "Conversations",
+    "对话": "Chat",
+    "新对话": "New chat",
+    "新建对话": "New conversation",
+    "点击「新建对话」开始": "Click \"New Conversation\" to start",
+    "删除会话": "Delete conversation",
+    "确定要删除这个会话吗？": "Are you sure you want to delete this conversation?",
+    "删除后会话无法恢复": "This conversation cannot be restored after deletion.",
+    "已删除会话": "Conversation deleted",
+    "已选中 {{n}} 个会话，确定要全部删除吗？{{suffix}}": "{{n}} conversations selected. Delete them all? {{suffix}}",
+    "已删除 {{n}} 个会话": "Deleted {{n}} conversations",
+    "已选 {{n}} 项": "{{n}} selected",
+    "重命名": "Rename",
+    "选择该会话": "Select this conversation",
+    "{{n}} 条": "{{n}} msgs",
+    "刚刚": "Just now",
+    "{{n}} 分钟前": "{{n}} min ago",
+    "{{n}} 小时前": "{{n}} hr ago",
+    "{{n}} 天前": "{{n}} days ago",
+    "{{n}} 周前": "{{n}} weeks ago"
   }
 }

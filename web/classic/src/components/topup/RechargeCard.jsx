@@ -48,8 +48,8 @@ import {
 import { IconGift } from '@douyinfe/semi-icons';
 import { useMinimumLoadingTime } from '../../hooks/common/useMinimumLoadingTime';
 import { useActualTheme } from '../../context/Theme';
-import { getCurrencyConfig } from '../../helpers/render';
 import SubscriptionPlansCard from './SubscriptionPlansCard';
+import { formatTopupCreditAmount, getTopupInputUnit } from './payment-display';
 
 const { Text } = Typography;
 
@@ -63,12 +63,9 @@ const RechargeCard = ({
   presetAmounts,
   selectedPreset,
   selectPresetAmount,
-  formatLargeNumber,
-  priceRatio,
   topUpCount,
   minTopUp,
-  renderQuotaWithAmount,
-  getAmount,
+  onTopupAmountChange,
   setTopUpCount,
   setSelectedPreset,
   renderAmount,
@@ -248,7 +245,9 @@ const RechargeCard = ({
                   <Col xs={24} sm={24} md={24} lg={10} xl={10}>
                     <Form.InputNumber
                       field='topUpCount'
-                      label={t('充值数量')}
+                      label={`${t('充值数量')} (${t(
+                        getTopupInputUnit(topupInfo?.topup_input_unit),
+                      )})`}
                       disabled={
                         !enableOnlineTopUp &&
                         !enableStripeTopUp &&
@@ -256,7 +255,11 @@ const RechargeCard = ({
                         !enableWaffoPancakeTopUp
                       }
                       placeholder={
-                        t('充值数量，最低 ') + renderQuotaWithAmount(minTopUp)
+                        t('充值数量，最低 ') +
+                        formatTopupCreditAmount(
+                          minTopUp,
+                          topupInfo?.topup_input_unit,
+                        )
                       }
                       value={topUpCount}
                       min={minTopUp}
@@ -267,14 +270,14 @@ const RechargeCard = ({
                         if (value && value >= 1) {
                           setTopUpCount(value);
                           setSelectedPreset(null);
-                          await getAmount(value);
+                          await onTopupAmountChange(value);
                         }
                       }}
                       onBlur={(e) => {
                         const value = parseInt(e.target.value);
-                        if (!value || value < 1) {
-                          setTopUpCount(1);
-                          getAmount(1);
+                        if (!value || value < minTopUp) {
+                          setTopUpCount(minTopUp);
+                          onTopupAmountChange(minTopUp);
                         }
                       }}
                       formatter={(value) => (value ? `${value}` : '')}
@@ -331,7 +334,7 @@ const RechargeCard = ({
 
                             const buttonEl = (
                               <Button
-                                key={payMethod.type}
+                                key={payMethod.id || payMethod.type}
                                 theme='outline'
                                 type='tertiary'
                                 onClick={() => preTopUp(payMethod.type)}
@@ -392,14 +395,19 @@ const RechargeCard = ({
                                 content={
                                   t('此支付方式最低充值金额为') +
                                   ' ' +
-                                  minTopupVal
+                                  formatTopupCreditAmount(
+                                    minTopupVal,
+                                    topupInfo?.topup_input_unit,
+                                  )
                                 }
-                                key={payMethod.type}
+                                key={payMethod.id || payMethod.type}
                               >
                                 {buttonEl}
                               </Tooltip>
                             ) : (
-                              <React.Fragment key={payMethod.type}>
+                              <React.Fragment
+                                key={payMethod.id || payMethod.type}
+                              >
                                 {buttonEl}
                               </React.Fragment>
                             );
@@ -411,70 +419,19 @@ const RechargeCard = ({
                 </Row>
               )}
 
-              {(enableOnlineTopUp || enableStripeTopUp || enableWaffoTopUp) && (
-                <Form.Slot
-                  label={
-                    <div className='flex items-center gap-2'>
-                      <span>{t('选择充值额度')}</span>
-                      {(() => {
-                        const { symbol, rate, type } = getCurrencyConfig();
-                        if (type === 'USD') return null;
-
-                        return (
-                          <span
-                            style={{
-                              color: 'var(--semi-color-text-2)',
-                              fontSize: '12px',
-                              fontWeight: 'normal',
-                            }}
-                          >
-                            (1 $ = {rate.toFixed(2)} {symbol})
-                          </span>
-                        );
-                      })()}
-                    </div>
-                  }
-                >
+              {(enableOnlineTopUp ||
+                enableStripeTopUp ||
+                enableWaffoTopUp ||
+                enableWaffoPancakeTopUp) && (
+                <Form.Slot label={t('选择充值额度')}>
                   <div className='grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2'>
                     {presetAmounts.map((preset, index) => {
                       const discount =
                         preset.discount ||
                         topupInfo?.discount?.[preset.value] ||
                         1.0;
-                      const originalPrice = preset.value * priceRatio;
-                      const discountedPrice = originalPrice * discount;
-                      const hasDiscount = discount < 1.0;
-                      const actualPay = discountedPrice;
-                      const save = originalPrice - discountedPrice;
-
-                      // 根据当前货币类型换算显示金额和数量
-                      const { symbol, rate, type } = getCurrencyConfig();
-                      const statusStr = localStorage.getItem('status');
-                      let usdRate = 7; // 默认CNY汇率
-                      try {
-                        if (statusStr) {
-                          const s = JSON.parse(statusStr);
-                          usdRate = s?.usd_exchange_rate || 7;
-                        }
-                      } catch (e) {}
-
-                      let displayValue = preset.value; // 显示的数量
-                      let displayActualPay = actualPay;
-                      let displaySave = save;
-
-                      if (type === 'USD') {
-                        // 数量保持USD，价格从CNY转USD
-                        displayActualPay = actualPay / usdRate;
-                        displaySave = save / usdRate;
-                      } else if (type === 'CNY') {
-                        // 数量转CNY，价格已是CNY
-                        displayValue = preset.value * usdRate;
-                      } else if (type === 'CUSTOM') {
-                        // 数量和价格都转自定义货币
-                        displayValue = preset.value * rate;
-                        displayActualPay = (actualPay / usdRate) * rate;
-                        displaySave = (save / usdRate) * rate;
-                      }
+                      const hasDiscount =
+                        payWay !== 'stripe' && discount > 0 && discount < 1.0;
 
                       return (
                         <Card
@@ -503,7 +460,10 @@ const RechargeCard = ({
                               style={{ margin: '0 0 8px 0' }}
                             >
                               <Coins size={18} />
-                              {formatLargeNumber(displayValue)} {symbol}
+                              {formatTopupCreditAmount(
+                                preset.value,
+                                topupInfo?.topup_input_unit,
+                              )}
                               {hasDiscount && (
                                 <Tag style={{ marginLeft: 4 }} color='green'>
                                   {t('折').includes('off')
@@ -523,11 +483,7 @@ const RechargeCard = ({
                                 margin: '4px 0',
                               }}
                             >
-                              {t('实付')} {symbol}
-                              {displayActualPay.toFixed(2)}，
-                              {hasDiscount
-                                ? `${t('节省')} ${symbol}${displaySave.toFixed(2)}`
-                                : `${t('节省')} ${symbol}0.00`}
+                              {t('充值额度')}
                             </div>
                           </div>
                         </Card>

@@ -16,12 +16,13 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useState, useCallback } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import i18next from 'i18next'
 import { toast } from 'sonner'
 import {
   calculateAmount,
   calculateStripeAmount,
+  calculateWaffoAmount,
   calculateWaffoPancakeAmount,
   requestPayment,
   requestStripePayment,
@@ -29,6 +30,7 @@ import {
 } from '../api'
 import {
   isStripePayment,
+  isWaffoPayment,
   isWaffoPancakePayment,
   submitPaymentForm,
 } from '../lib'
@@ -38,38 +40,64 @@ import {
 // ============================================================================
 
 export function usePayment() {
-  const [amount, setAmount] = useState<number>(0)
+  const [amount, setAmount] = useState<number | null>(null)
   const [calculating, setCalculating] = useState(false)
+  const [quoteError, setQuoteError] = useState(false)
   const [processing, setProcessing] = useState(false)
+  const calculationIdRef = useRef(0)
+
+  const resetPaymentAmount = useCallback(() => {
+    calculationIdRef.current += 1
+    setAmount(null)
+    setCalculating(false)
+    setQuoteError(false)
+  }, [])
 
   // Calculate payment amount
   const calculatePaymentAmount = useCallback(
     async (topupAmount: number, paymentType: string) => {
+      const calculationId = ++calculationIdRef.current
+
       try {
         setCalculating(true)
+        setQuoteError(false)
 
         const isStripe = isStripePayment(paymentType)
+        const isWaffo = isWaffoPayment(paymentType)
         const isPancake = isWaffoPancakePayment(paymentType)
         const response = isStripe
           ? await calculateStripeAmount({ amount: topupAmount })
-          : isPancake
-            ? await calculateWaffoPancakeAmount({ amount: topupAmount })
-            : await calculateAmount({ amount: topupAmount })
+          : isWaffo
+            ? await calculateWaffoAmount({ amount: topupAmount })
+            : isPancake
+              ? await calculateWaffoPancakeAmount({ amount: topupAmount })
+              : await calculateAmount({ amount: topupAmount })
 
         if (isApiSuccess(response) && response.data) {
           const calculatedAmount = parseFloat(response.data)
-          setAmount(calculatedAmount)
-          return calculatedAmount
+          if (Number.isFinite(calculatedAmount) && calculatedAmount > 0) {
+            if (calculationId === calculationIdRef.current) {
+              setAmount(calculatedAmount)
+            }
+            return calculatedAmount
+          }
         }
 
-        // Don't show error for calculation, just set to 0
-        setAmount(0)
-        return 0
+        if (calculationId === calculationIdRef.current) {
+          setAmount(null)
+          setQuoteError(true)
+        }
+        return null
       } catch (_error) {
-        setAmount(0)
-        return 0
+        if (calculationId === calculationIdRef.current) {
+          setAmount(null)
+          setQuoteError(true)
+        }
+        return null
       } finally {
-        setCalculating(false)
+        if (calculationId === calculationIdRef.current) {
+          setCalculating(false)
+        }
       }
     },
     []
@@ -130,9 +158,10 @@ export function usePayment() {
   return {
     amount,
     calculating,
+    quoteError,
     processing,
     calculatePaymentAmount,
     processPayment,
-    setAmount,
+    resetPaymentAmount,
   }
 }

@@ -1094,12 +1094,7 @@ export function getCurrencyConfig() {
 
   if (quotaDisplayType === 'CNY') {
     symbol = '¥';
-    try {
-      if (statusStr) {
-        const s = JSON.parse(statusStr);
-        rate = s?.usd_exchange_rate || 7;
-      }
-    } catch (e) {}
+    rate = 1;
   } else if (quotaDisplayType === 'CUSTOM') {
     try {
       if (statusStr) {
@@ -1136,15 +1131,7 @@ export function renderQuota(quota, digits = 2) {
   let symbol = '$';
   let value = resultUSD;
   if (quotaDisplayType === 'CNY') {
-    const statusStr = localStorage.getItem('status');
-    let usdRate = 1;
-    try {
-      if (statusStr) {
-        const s = JSON.parse(statusStr);
-        usdRate = s?.usd_exchange_rate || 1;
-      }
-    } catch (e) {}
-    value = resultUSD * usdRate;
+    value = resultUSD;
     symbol = '¥';
   } else if (quotaDisplayType === 'CUSTOM') {
     const statusStr = localStorage.getItem('status');

@@ -6,6 +6,7 @@ import { pluginReact } from '@rsbuild/plugin-react'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const require = createRequire(import.meta.url)
+const dateFnsDir = path.dirname(require.resolve('date-fns/package.json'))
 const semiUiDir = path.resolve(
   path.dirname(require.resolve('@douyinfe/semi-ui')),
   '../..',
@@ -43,6 +44,7 @@ export default defineConfig(({ envMode }) => {
     resolve: {
       alias: {
         '@': path.resolve(__dirname, './src'),
+        'date-fns': dateFnsDir,
         '@douyinfe/semi-ui/dist/css/semi.css': path.resolve(
           semiUiDir,
           'dist/css/semi.css',

@@ -38,6 +38,7 @@ import type {
   WaffoPaymentResponse,
   WaffoPancakePaymentRequest,
   WaffoPancakePaymentResponse,
+  TopupInvoiceResponse,
 } from './types'
 
 // ============================================================================
@@ -88,6 +89,18 @@ export async function calculateStripeAmount(
   request: AmountRequest
 ): Promise<AmountResponse> {
   const res = await api.post('/api/user/stripe/amount', request, {
+    skipBusinessError: true,
+  } as Record<string, unknown>)
+  return res.data
+}
+
+/**
+ * Calculate payment amount for Waffo payment
+ */
+export async function calculateWaffoAmount(
+  request: AmountRequest
+): Promise<AmountResponse> {
+  const res = await api.post('/api/user/waffo/amount', request, {
     skipBusinessError: true,
   } as Record<string, unknown>)
   return res.data
@@ -202,6 +215,29 @@ export async function getUserBillingHistory(
     params.append('keyword', keyword)
   }
   const res = await api.get(`/api/user/topup/self?${params.toString()}`)
+  return res.data
+}
+
+/**
+ * Get a self-service invoice for a completed topup record
+ */
+export async function getTopupInvoice(
+  topupId: number
+): Promise<TopupInvoiceResponse> {
+  const res = await api.get(`/api/user/topup/${topupId}/invoice`, {
+    skipBusinessError: true,
+  })
+  return res.data
+}
+
+/**
+ * Download a PDF invoice for a completed topup record
+ */
+export async function getTopupInvoicePdf(topupId: number): Promise<Blob> {
+  const res = await api.get(`/api/user/topup/${topupId}/invoice.pdf`, {
+    responseType: 'blob',
+    skipBusinessError: true,
+  })
   return res.data
 }
 

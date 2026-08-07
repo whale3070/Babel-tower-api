@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useState, useEffect } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { getTopupInfo } from '../api'
 import {
   generatePresetAmounts,
@@ -70,6 +70,8 @@ function parsePaymentMethods(
         name: typeof item.name === 'string' ? item.name : '',
         type,
         color: typeof item.color === 'string' ? item.color : undefined,
+        icon: typeof item.icon === 'string' ? item.icon : undefined,
+        currency: typeof item.currency === 'string' ? item.currency : undefined,
         min_topup:
           type === 'stripe' && normalizedMinTopup <= 0
             ? stripeMinTopup
@@ -151,7 +153,12 @@ function parseDiscountMap(data: unknown): Record<number, number> {
       const numericKey = Number(key)
       const numericValue = Number(value)
 
-      if (Number.isFinite(numericKey) && Number.isFinite(numericValue)) {
+      if (
+        Number.isFinite(numericKey) &&
+        numericKey > 0 &&
+        Number.isFinite(numericValue) &&
+        numericValue > 0
+      ) {
         result[numericKey] = numericValue
       }
 
@@ -166,7 +173,7 @@ export function useTopupInfo() {
   const [presetAmounts, setPresetAmounts] = useState<PresetAmount[]>([])
   const [loading, setLoading] = useState(true)
 
-  const fetchTopupInfo = async () => {
+  const fetchTopupInfo = useCallback(async () => {
     try {
       setLoading(true)
 
@@ -211,11 +218,12 @@ export function useTopupInfo() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [])
 
   useEffect(() => {
-    fetchTopupInfo()
-  }, [])
+    const timer = window.setTimeout(fetchTopupInfo, 0)
+    return () => window.clearTimeout(timer)
+  }, [fetchTopupInfo])
 
   return {
     topupInfo,

@@ -16,7 +16,12 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import {
+  formatLocalCurrencyAmount,
+  formatQuotaWithCurrency,
+} from '@/lib/currency'
 import { DEFAULT_DISCOUNT_RATE } from '../constants'
+import type { TopupInputUnit } from '../types'
 
 // ============================================================================
 // Wallet-specific Formatting Functions
@@ -50,15 +55,67 @@ export function formatQuotaShort(quota: number): string {
  * Format currency amount that is already in local currency.
  * This is used for payment amounts that have been calculated via priceRatio.
  */
-export function formatCurrency(amount: number | string): string {
+export function formatPaymentAmount(
+  amount: number | string,
+  currency?: string
+): string {
   const numeric =
     typeof amount === 'number' ? amount : Number.parseFloat(String(amount))
   if (!Number.isFinite(numeric)) return '-'
 
-  return new Intl.NumberFormat(undefined, {
+  const normalizedCurrency = currency?.trim().toUpperCase()
+  if (normalizedCurrency) {
+    try {
+      return new Intl.NumberFormat(undefined, {
+        style: 'currency',
+        currency: normalizedCurrency,
+        currencyDisplay: 'narrowSymbol',
+        minimumFractionDigits: 0,
+        maximumFractionDigits: Math.abs(numeric) >= 1 ? 2 : 4,
+      }).format(numeric)
+    } catch {
+      // Fall through for gateway-specific currency strings that are not ISO.
+    }
+  }
+
+  const formatted = new Intl.NumberFormat(undefined, {
     minimumFractionDigits: 0,
     maximumFractionDigits: Math.abs(numeric) >= 1 ? 2 : 4,
   }).format(numeric)
+  return normalizedCurrency ? `${formatted} ${normalizedCurrency}` : formatted
+}
+
+/**
+ * Format the amount of wallet credit represented by a top-up request.
+ * The amount uses the backend-declared input unit. CNY is a 1:1 wallet
+ * denomination, so ¥10 is formatted directly without exchange conversion.
+ */
+export function formatTopupCreditAmount(
+  amount: number,
+  inputUnit: TopupInputUnit
+): string {
+  const options = {
+    digitsLarge: 2,
+    digitsSmall: 2,
+    abbreviate: false,
+  }
+
+  if (inputUnit === 'TOKENS') {
+    return formatQuotaWithCurrency(amount, options)
+  }
+  if (inputUnit === 'CNY') {
+    return formatPaymentAmount(amount, 'CNY')
+  }
+  if (inputUnit === 'CUSTOM') {
+    return formatLocalCurrencyAmount(amount, options)
+  }
+  return formatPaymentAmount(amount, 'USD')
+}
+
+export function getTopupInputUnit(inputUnit: TopupInputUnit): string {
+  if (inputUnit === 'TOKENS') return 'Tokens'
+  if (inputUnit === 'CUSTOM') return 'Custom Currency'
+  return inputUnit
 }
 
 /**
@@ -70,28 +127,4 @@ export function getDiscountLabel(discount: number): string {
   }
   const off = Math.round((1 - discount) * 100)
   return `${off}% OFF`
-}
-
-/**
- * Calculate pricing details for a preset amount
- */
-export function calculatePresetPricing(
-  presetValue: number,
-  priceRatio: number,
-  discount: number,
-  usdExchangeRate: number = 1
-) {
-  const originalPrice = presetValue * priceRatio
-  const actualPrice = originalPrice * discount
-  const savedAmount = originalPrice - actualPrice
-  const hasDiscount = discount < 1.0
-  const displayValue = presetValue * usdExchangeRate
-
-  return {
-    displayValue,
-    originalPrice,
-    actualPrice,
-    savedAmount,
-    hasDiscount,
-  }
 }

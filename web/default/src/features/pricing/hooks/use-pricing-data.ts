@@ -35,10 +35,7 @@ export function usePricingData() {
     () => Math.max((status?.price as number) ?? 1, 0.001),
     [status?.price]
   )
-  const usdExchangeRate = useMemo(
-    () => Math.max((status?.usd_exchange_rate as number) ?? priceRate, 0.001),
-    [status?.usd_exchange_rate, priceRate]
-  )
+  const usdExchangeRate = 1
 
   const models = useMemo(() => {
     if (!data?.data || !data?.vendors) return []

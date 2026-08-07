@@ -41,6 +41,7 @@ export type PaymentResponse = ApiResponse<Record<string, unknown>> & {
 export type StripePaymentResponse = ApiResponse<{ pay_link: string }>
 export type AffiliateCodeResponse = ApiResponse<string>
 export type AffiliateTransferResponse = ApiResponse
+export type TopupInvoiceResponse = ApiResponse<TopupInvoice>
 export type CreemPaymentResponse = ApiResponse<{ checkout_url: string }>
 export type WaffoPaymentResponse = ApiResponse<
   { payment_url?: string } | string
@@ -59,6 +60,8 @@ export type WaffoPancakePaymentResponse = ApiResponse<
     }
   | string
 >
+
+export type TopupInputUnit = 'USD' | 'CNY' | 'TOKENS' | 'CUSTOM'
 
 /**
  * Creem product configuration
@@ -90,6 +93,8 @@ export interface CreemPaymentRequest {
  * Payment method configuration
  */
 export interface PaymentMethod {
+  /** Stable client-side identifier (needed when a provider has sub-methods) */
+  id?: string
   /** Display name of payment method */
   name: string
   /** Payment method type identifier */
@@ -100,6 +105,10 @@ export interface PaymentMethod {
   min_topup?: number
   /** Optional icon URL provided by backend (preferred over built-in icons) */
   icon?: string
+  /** ISO 4217 currency used by the payment gateway */
+  currency?: string
+  /** Server-side Waffo sub-method index */
+  waffo_index?: number
 }
 
 /**
@@ -132,6 +141,8 @@ export interface TopupInfo {
   stripe_min_topup: number
   /** Preset amount options */
   amount_options: number[]
+  /** Unit accepted by amount/quote/payment endpoints */
+  topup_input_unit?: TopupInputUnit
   /** Discount rates by amount */
   discount: Record<number, number>
   /** Optional topup link for purchasing codes */
@@ -144,6 +155,8 @@ export interface TopupInfo {
   enable_waffo_topup?: boolean
   /** Available Waffo payment methods */
   waffo_pay_methods?: WaffoPayMethod[]
+  /** Currency charged by Waffo */
+  waffo_currency?: string
   /** Minimum topup amount for Waffo */
   waffo_min_topup?: number
   /** Whether Waffo Pancake topup is enabled */
@@ -247,7 +260,13 @@ export interface UserWalletData {
 /**
  * Topup record status
  */
-export type TopupStatus = 'success' | 'pending' | 'expired'
+export type TopupStatus =
+  | 'success'
+  | 'pending'
+  | 'expired'
+  | 'failed'
+  | 'canceled'
+  | 'cancelled'
 
 /**
  * Topup billing record
@@ -261,10 +280,18 @@ export interface TopupRecord {
   amount: number
   /** Payment amount (actual money paid) */
   money: number
+  /** Exact quota credited by new orders */
+  credited_quota?: number
+  /** Server-snapshotted actual payment amount (new orders) */
+  payment_amount?: number
+  /** Server-snapshotted ISO payment currency (new orders) */
+  payment_currency?: string
   /** Trade/order number */
   trade_no: string
   /** Payment method type */
   payment_method: string
+  /** Payment provider type */
+  payment_provider?: string
   /** Creation timestamp */
   create_time: number
   /** Completion timestamp */
@@ -286,4 +313,60 @@ export interface BillingHistoryResponse {
  */
 export interface CompleteOrderRequest {
   trade_no: string
+}
+
+export interface InvoiceParty {
+  name: string
+  company: string
+  email: string
+  address: string
+  business_registration_number: string
+}
+
+export interface InvoicePaymentDetails {
+  payment_provider: string
+  payment_method: string
+  order_number: string
+  usdt_network: string
+  receiving_wallet_address: string
+  blockchain_transaction_hash: string
+  payment_completion_time: string
+  payment_completion_unix: number
+}
+
+export interface InvoiceLineItem {
+  description: string
+  quantity: number
+  unit_amount: string
+  total: string
+  currency: string
+}
+
+export interface InvoiceTotals {
+  subtotal: string
+  tax_label: string
+  tax_value: string
+  total: string
+  amount_paid: string
+  balance_due: string
+  currency: string
+}
+
+export interface TopupInvoice {
+  invoice_number: string
+  issue_date: string
+  issue_date_unix: number
+  source_type: string
+  source_id: number
+  seller: InvoiceParty
+  buyer: InvoiceParty
+  recharge_amount: string
+  recharge_currency: string
+  fiat_reference_currency: string
+  credited_amount: number
+  payment: InvoicePaymentDetails
+  line_items: InvoiceLineItem[]
+  totals: InvoiceTotals
+  notes: string
+  footer_text: string
 }

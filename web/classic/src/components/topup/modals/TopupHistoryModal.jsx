@@ -37,6 +37,11 @@ import { IconSearch } from '@douyinfe/semi-icons';
 import { API, timestamp2string } from '../../../helpers';
 import { isAdmin } from '../../../helpers/utils';
 import { useIsMobile } from '../../../hooks/common/useIsMobile';
+import {
+  formatPaymentAmount,
+  formatTopupRecordCredit,
+  getActualPaymentAmount,
+} from '../payment-display';
 const { Text } = Typography;
 
 // 状态映射配置
@@ -52,6 +57,8 @@ const PAYMENT_METHOD_MAP = {
   stripe: 'Stripe',
   creem: 'Creem',
   waffo: 'Waffo',
+  waffo_pancake: 'Waffo Pancake',
+  usdt: 'USDT',
   alipay: '支付宝',
   wxpay: '微信',
 };
@@ -185,9 +192,9 @@ const TopupHistoryModal = ({ visible, onCancel, t }) => {
       },
       {
         title: t('充值额度'),
-        dataIndex: 'amount',
+        dataIndex: 'credited_quota',
         key: 'amount',
-        render: (amount, record) => {
+        render: (_, record) => {
           if (isSubscriptionTopup(record)) {
             return (
               <Tag color='purple' shape='circle' size='small'>
@@ -198,16 +205,25 @@ const TopupHistoryModal = ({ visible, onCancel, t }) => {
           return (
             <span className='flex items-center gap-1'>
               <Coins size={16} />
-              <Text>{amount}</Text>
+              <Text>{formatTopupRecordCredit(record)}</Text>
             </span>
           );
         },
       },
       {
         title: t('支付金额'),
-        dataIndex: 'money',
-        key: 'money',
-        render: (money) => <Text type='danger'>¥{money.toFixed(2)}</Text>,
+        dataIndex: 'payment_amount',
+        key: 'payment_amount',
+        render: (_, record) => {
+          const paymentAmount = getActualPaymentAmount(record);
+          return (
+            <Text type='danger'>
+              {paymentAmount === null
+                ? '-'
+                : formatPaymentAmount(paymentAmount, record.payment_currency)}
+            </Text>
+          );
+        },
       },
       {
         title: t('状态'),
@@ -227,14 +243,14 @@ const TopupHistoryModal = ({ visible, onCancel, t }) => {
           if (record.status === 'pending') {
             actions.push(
               <Button
-                key="complete"
+                key='complete'
                 size='small'
                 type='primary'
                 theme='outline'
                 onClick={() => confirmAdminComplete(record.trade_no)}
               >
                 {t('补单')}
-              </Button>
+              </Button>,
             );
           }
           return actions.length > 0 ? <>{actions}</> : null;

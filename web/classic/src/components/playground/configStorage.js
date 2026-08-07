@@ -20,9 +20,52 @@ For commercial licensing, please contact support@quantumnous.com
 import {
   STORAGE_KEYS,
   DEFAULT_CONFIG,
+  DEFAULT_CONVERSATION_TITLE,
+  CONVERSATION_TITLE_MAX_LENGTH,
 } from '../../constants/playground.constants';
 
 const MESSAGES_STORAGE_KEY = 'playground_messages';
+
+// 生成会话 ID：优先用 crypto.randomUUID，否则用时间戳+随机数兜底
+const generateConversationId = () => {
+  try {
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+      return crypto.randomUUID();
+    }
+  } catch (e) {
+    // ignore
+  }
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+};
+
+// 从消息列表里提取首条用户消息的纯文本作为标题
+export const deriveConversationTitle = (messages) => {
+  if (!Array.isArray(messages) || messages.length === 0) {
+    return DEFAULT_CONVERSATION_TITLE;
+  }
+  const firstUser = messages.find((m) => m && m.role === 'user');
+  if (!firstUser) {
+    return DEFAULT_CONVERSATION_TITLE;
+  }
+  let text = '';
+  if (typeof firstUser.content === 'string') {
+    text = firstUser.content;
+  } else if (Array.isArray(firstUser.content)) {
+    const t = firstUser.content.find((it) => it && it.type === 'text');
+    text = t?.text || '';
+  }
+  text = (text || '').trim().replace(/\s+/g, ' ');
+  if (!text) {
+    return DEFAULT_CONVERSATION_TITLE;
+  }
+  return text.length > CONVERSATION_TITLE_MAX_LENGTH
+    ? text.slice(0, CONVERSATION_TITLE_MAX_LENGTH)
+    : text;
+};
+
+// 按 updatedAt 降序排序
+const sortConversations = (list) =>
+  [...list].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
 
 /**
  * 保存配置到 localStorage
@@ -231,4 +274,123 @@ export const importConfig = (file) => {
       reject(new Error('导入配置失败: ' + error.message));
     }
   });
+};
+
+// ========== 会话（多会话）相关 ==========
+
+/**
+ * 创建一个空的会话对象（仅内存，不写入 localStorage）
+ * @param {Object} [overrides]
+ * @returns {Object} 会话对象
+ */
+export const createConversationObject = (overrides = {}) => {
+  const now = Date.now();
+  return {
+    id: generateConversationId(),
+    title: DEFAULT_CONVERSATION_TITLE,
+    messages: [],
+    createdAt: now,
+    updatedAt: now,
+    ...overrides,
+  };
+};
+
+/**
+ * 从 localStorage 加载所有会话（按 updatedAt 降序）。
+ * 迁移：若 playground_conversations 不存在但旧 playground_messages 存在，
+ * 把旧消息打包成一个会话写入并返回（不删除旧 key）。
+ * @returns {Array} 会话数组
+ */
+export const loadConversations = () => {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEYS.CONVERSATIONS);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      const list = Array.isArray(parsed?.conversations)
+        ? parsed.conversations
+        : Array.isArray(parsed)
+          ? parsed
+          : [];
+      return sortConversations(list.filter(Boolean));
+    }
+
+    // 迁移：把旧的单会话消息包成一条会话
+    const legacy = loadMessages();
+    if (Array.isArray(legacy) && legacy.length > 0) {
+      const now = Date.now();
+      const migrated = createConversationObject({
+        title: deriveConversationTitle(legacy),
+        messages: legacy,
+        createdAt: legacy[0]?.createAt || now,
+        updatedAt: now,
+      });
+      saveConversations([migrated]);
+      return [migrated];
+    }
+
+    return [];
+  } catch (error) {
+    console.error('加载会话列表失败:', error);
+    return [];
+  }
+};
+
+/**
+ * 保存会话列表到 localStorage（按原顺序保存，不强制排序）。
+ * @param {Array} conversations - 要保存的会话数组
+ */
+export const saveConversations = (conversations) => {
+  try {
+    const payload = {
+      conversations: Array.isArray(conversations) ? conversations : [],
+      timestamp: new Date().toISOString(),
+    };
+    localStorage.setItem(
+      STORAGE_KEYS.CONVERSATIONS,
+      JSON.stringify(payload),
+    );
+  } catch (error) {
+    console.error('保存会话列表失败:', error);
+  }
+};
+
+/**
+ * 读取上次激活的会话 ID。
+ * @returns {string|null}
+ */
+export const loadCurrentConversationId = () => {
+  try {
+    return localStorage.getItem(STORAGE_KEYS.CURRENT_CONVERSATION_ID) || null;
+  } catch (error) {
+    console.error('读取当前会话 ID 失败:', error);
+    return null;
+  }
+};
+
+/**
+ * 持久化当前会话 ID。
+ * @param {string|null} id
+ */
+export const saveCurrentConversationId = (id) => {
+  try {
+    if (id == null || id === '') {
+      localStorage.removeItem(STORAGE_KEYS.CURRENT_CONVERSATION_ID);
+    } else {
+      localStorage.setItem(STORAGE_KEYS.CURRENT_CONVERSATION_ID, id);
+    }
+  } catch (error) {
+    console.error('保存当前会话 ID 失败:', error);
+  }
+};
+
+/**
+ * 清空所有会话（不影响 config 和 messages 旧 key）。
+ */
+export const clearConversations = () => {
+  try {
+    localStorage.removeItem(STORAGE_KEYS.CONVERSATIONS);
+    localStorage.removeItem(STORAGE_KEYS.CURRENT_CONVERSATION_ID);
+  } catch (error) {
+    console.error('清空会话列表失败:', error);
+  }
 };

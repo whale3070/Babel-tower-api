@@ -22,7 +22,7 @@ import {
   DEFAULT_PAYMENT_TYPE,
   DEFAULT_MIN_TOPUP,
 } from '../constants'
-import type { PresetAmount, TopupInfo } from '../types'
+import type { PaymentMethod, PresetAmount, TopupInfo } from '../types'
 
 // ============================================================================
 // Payment Processing Functions
@@ -76,6 +76,13 @@ export function isStripePayment(paymentType: string): boolean {
 }
 
 /**
+ * Check if payment method is Waffo
+ */
+export function isWaffoPayment(paymentType: string): boolean {
+  return paymentType === PAYMENT_TYPES.WAFFO
+}
+
+/**
  * Check if payment method is Waffo Pancake
  *
  * Pancake is a metered-style payment that goes through a dedicated checkout
@@ -90,55 +97,92 @@ export function isWaffoPancakePayment(paymentType: string): boolean {
  * Get default payment type from topup info
  */
 export function getDefaultPaymentType(topupInfo: TopupInfo | null): string {
-  if (!topupInfo) {
-    return DEFAULT_PAYMENT_TYPE
-  }
+  return getAvailablePaymentMethods(topupInfo)[0]?.type || DEFAULT_PAYMENT_TYPE
+}
 
-  // Return first available payment method or default
-  if (topupInfo.pay_methods?.length > 0) {
-    return topupInfo.pay_methods[0].type
-  }
+/**
+ * Return one stable key per selectable payment option.
+ */
+export function getPaymentMethodKey(method: PaymentMethod): string {
+  return method.id || `${method.type}:${method.waffo_index ?? 'default'}`
+}
 
-  if (topupInfo.enable_stripe_topup) {
-    return PAYMENT_TYPES.STRIPE
-  }
+/**
+ * Merge standard gateways and Waffo's provider-specific methods into the
+ * single list rendered by the wallet.
+ */
+export function getAvailablePaymentMethods(
+  topupInfo: TopupInfo | null
+): PaymentMethod[] {
+  if (!topupInfo) return []
+
+  const methods = [...(topupInfo.pay_methods || [])]
 
   if (topupInfo.enable_waffo_topup) {
-    return PAYMENT_TYPES.WAFFO
+    const waffoMethods = topupInfo.waffo_pay_methods || []
+    if (waffoMethods.length > 0) {
+      methods.push(
+        ...waffoMethods.map((method, index) => ({
+          id: `${PAYMENT_TYPES.WAFFO}:${index}`,
+          name: method.name,
+          type: PAYMENT_TYPES.WAFFO,
+          icon: method.icon,
+          currency: topupInfo.waffo_currency || 'USD',
+          min_topup: topupInfo.waffo_min_topup,
+          waffo_index: index,
+        }))
+      )
+    } else {
+      methods.push({
+        id: `${PAYMENT_TYPES.WAFFO}:default`,
+        name: 'Waffo (Global Payment)',
+        type: PAYMENT_TYPES.WAFFO,
+        currency: topupInfo.waffo_currency || 'USD',
+        min_topup: topupInfo.waffo_min_topup,
+      })
+    }
   }
 
-  if (topupInfo.enable_waffo_pancake_topup) {
-    return PAYMENT_TYPES.WAFFO_PANCAKE
-  }
+  const seen = new Set<string>()
+  return methods.filter((method) => {
+    const key = getPaymentMethodKey(method)
+    if (!method.name || !method.type || seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
 
-  return DEFAULT_PAYMENT_TYPE
+/**
+ * Get the server-provided minimum for a specific payment method.
+ */
+export function getPaymentMethodMinTopup(
+  topupInfo: TopupInfo | null,
+  method: PaymentMethod | undefined
+): number {
+  if (!topupInfo || !method) return DEFAULT_MIN_TOPUP
+  if (method.min_topup && method.min_topup > 0) return method.min_topup
+
+  switch (method.type) {
+    case PAYMENT_TYPES.STRIPE:
+      return topupInfo.stripe_min_topup || DEFAULT_MIN_TOPUP
+    case PAYMENT_TYPES.WAFFO:
+      return topupInfo.waffo_min_topup || DEFAULT_MIN_TOPUP
+    case PAYMENT_TYPES.WAFFO_PANCAKE:
+      return topupInfo.waffo_pancake_min_topup || DEFAULT_MIN_TOPUP
+    default:
+      return topupInfo.min_topup || DEFAULT_MIN_TOPUP
+  }
 }
 
 /**
  * Get minimum topup amount from topup info
  */
 export function getMinTopupAmount(topupInfo: TopupInfo | null): number {
-  if (!topupInfo) {
-    return DEFAULT_MIN_TOPUP
-  }
+  const minimums = getAvailablePaymentMethods(topupInfo)
+    .map((method) => getPaymentMethodMinTopup(topupInfo, method))
+    .filter((minimum) => Number.isFinite(minimum) && minimum > 0)
 
-  if (topupInfo.enable_online_topup) {
-    return topupInfo.min_topup
-  }
-
-  if (topupInfo.enable_stripe_topup) {
-    return topupInfo.stripe_min_topup
-  }
-
-  if (topupInfo.enable_waffo_topup) {
-    return topupInfo.waffo_min_topup || DEFAULT_MIN_TOPUP
-  }
-
-  if (topupInfo.enable_waffo_pancake_topup) {
-    return topupInfo.waffo_pancake_min_topup || DEFAULT_MIN_TOPUP
-  }
-
-  return DEFAULT_MIN_TOPUP
+  return minimums.length > 0 ? Math.min(...minimums) : DEFAULT_MIN_TOPUP
 }
 
 /**

@@ -29,8 +29,7 @@ For commercial licensing, please contact support@quantumnous.com
  *
  * 1. **System USD**: Internal currency unit used throughout the system (e.g., 10 USD)
  * 2. **Local Currency**: Admin-configured display currency (e.g., CNY, custom currency)
- * 3. **Exchange Rate (usdExchangeRate)**: Conversion rate from USD to local currency
- *    - Example: usdExchangeRate = 7 means 1 USD = 7 CNY
+ * 3. **CNY denomination**: CNY display is 1:1; no exchange rate is applied.
  * 4. **Recharge Price (priceRatio)**: Cost in local currency to purchase 1 system USD
  *    - Example: priceRatio = 5 means user pays 5 CNY to get 1 USD credit
  * 5. **Tokens**: Alternative display unit (e.g., 500,000 tokens = 1 USD)
@@ -46,17 +45,14 @@ For commercial licensing, please contact support@quantumnous.com
  *
  * Admin Configuration:
  * - quotaDisplayType: 'CNY'
- * - usdExchangeRate: 7 (1 USD = 7 CNY)
- * - priceRatio: 5 (5 CNY per 1 USD credit)
- * - quotaPerUnit: 500000 (tokens per USD)
+ * - quotaPerUnit: 500000 (quota units per displayed currency unit)
  *
  * User Flow:
- * 1. Recharge option: 10 USD
- *    - Display: formatCurrencyFromUSD(10) → "¥70"
- * 2. Payment amount: 10 × 5 = 50 (already in CNY)
- *    - Display: formatLocalCurrencyAmount(50) → "¥50"
- * 3. User receives: 10 USD credit
- *    - Balance display: formatCurrencyFromUSD(10) → "¥70"
+ * 1. Recharge option: 10
+ *    - Display: formatCurrencyFromUSD(10) → "¥10"
+ * 2. Payment amount: 10 CNY
+ *    - Display: formatLocalCurrencyAmount(10) → "¥10"
+ * 3. User receives and sees ¥10 credit
  *
  * ## Quick Reference Guide
  *
@@ -172,7 +168,7 @@ function getDisplayMeta(config: CurrencyConfig): DisplayMeta {
         kind: 'currency',
         symbol: '¥',
         currencyCode: 'CNY',
-        exchangeRate: config.usdExchangeRate,
+        exchangeRate: 1,
       }
     case 'CUSTOM':
       return {
@@ -325,8 +321,8 @@ export function getCurrencyDisplay() {
  * formatCurrencyFromUSD(10) → "$10"
  *
  * @example
- * // With quotaDisplayType: 'CNY', usdExchangeRate: 7
- * formatCurrencyFromUSD(10) → "¥70"
+ * // With quotaDisplayType: 'CNY' (fixed 1:1 denomination)
+ * formatCurrencyFromUSD(10) → "¥10"
  *
  * @example
  * // With quotaDisplayType: 'TOKENS', quotaPerUnit: 500000
@@ -339,7 +335,7 @@ export function getCurrencyDisplay() {
  * @remarks
  * Use this function for:
  * - User balance/quota display
- * - Recharge option amounts (before exchange rate applied)
+ * - Recharge option amounts
  * - Transaction amounts in billing history
  * - Any value stored in database as USD
  *
@@ -390,8 +386,8 @@ export function formatCurrencyFromUSD(
  * formatBillingCurrencyFromUSD(10) → "$10"  (not "5,000,000 tokens")
  *
  * @example
- * // With quotaDisplayType: 'CNY', usdExchangeRate: 7
- * formatBillingCurrencyFromUSD(10) → "¥70"
+ * // With quotaDisplayType: 'CNY' (fixed 1:1 denomination)
+ * formatBillingCurrencyFromUSD(10) → "¥10"
  *
  * @remarks
  * Use this function for:
@@ -437,8 +433,8 @@ export function formatBillingCurrencyFromUSD(
  * formatQuotaWithCurrency(5000000) → "$10"
  *
  * @example
- * // With quotaPerUnit: 500000, quotaDisplayType: 'CNY', usdExchangeRate: 7
- * formatQuotaWithCurrency(5000000) → "¥70"
+ * // With quotaPerUnit: 500000, quotaDisplayType: 'CNY'
+ * formatQuotaWithCurrency(5000000) → "¥10"
  *
  * @remarks
  * Use this function for:

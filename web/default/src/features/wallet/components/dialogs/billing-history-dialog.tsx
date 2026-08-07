@@ -17,10 +17,15 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useState } from 'react'
-import { Search, Copy, Check, ChevronLeft, ChevronRight } from 'lucide-react'
+import {
+  Search,
+  Copy,
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  ReceiptText,
+} from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import { formatCurrencyFromUSD } from '@/lib/currency'
-import { formatNumber } from '@/lib/format'
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
 import {
   AlertDialog,
@@ -54,11 +59,15 @@ import {
 import { Skeleton } from '@/components/ui/skeleton'
 import { StatusBadge } from '@/components/status-badge'
 import { useBillingHistory } from '../../hooks/use-billing-history'
+import { formatPaymentAmount } from '../../lib'
 import {
+  getActualPaymentAmount,
+  formatTopupRecordCredit,
   getStatusConfig,
   getPaymentMethodName,
   formatTimestamp,
 } from '../../lib/billing'
+import { InvoiceDialog } from './invoice-dialog'
 
 interface BillingHistoryDialogProps {
   open: boolean
@@ -86,6 +95,7 @@ export function BillingHistoryDialog({
   } = useBillingHistory()
 
   const [confirmTradeNo, setConfirmTradeNo] = useState<string | null>(null)
+  const [invoiceTopupId, setInvoiceTopupId] = useState<number | null>(null)
   const { copyToClipboard, copiedText } = useCopyToClipboard({ notify: false })
 
   const totalPages = Math.ceil(total / pageSize)
@@ -96,6 +106,12 @@ export function BillingHistoryDialog({
       if (success) {
         setConfirmTradeNo(null)
       }
+    }
+  }
+
+  const handleInvoiceOpenChange = (nextOpen: boolean) => {
+    if (!nextOpen) {
+      setInvoiceTopupId(null)
     }
   }
 
@@ -184,6 +200,7 @@ export function BillingHistoryDialog({
                 <div className='space-y-3'>
                   {records.map((record) => {
                     const statusConfig = getStatusConfig(record.status)
+                    const actualPayment = getActualPaymentAmount(record)
                     return (
                       <div
                         key={record.id}
@@ -241,37 +258,53 @@ export function BillingHistoryDialog({
                           </div>
                           <div className='space-y-1'>
                             <Label className='text-muted-foreground text-xs'>
-                              {t('Amount')}
+                              {t('Amount you receive')}
                             </Label>
                             <div className='text-sm font-semibold'>
-                              {formatCurrencyFromUSD(record.amount, {
-                                digitsLarge: 2,
-                                digitsSmall: 2,
-                                abbreviate: false,
-                              })}
+                              {formatTopupRecordCredit(record)}
                             </div>
                           </div>
                           <div className='space-y-1'>
                             <Label className='text-muted-foreground text-xs'>
-                              {t('Payment')}
+                              {t('Actual payment')}
                             </Label>
-                            <div className='text-sm font-semibold text-red-600'>
-                              {formatNumber(record.money)}
+                            <div className='text-sm font-semibold'>
+                              {actualPayment === null
+                                ? t('Payment amount unavailable')
+                                : formatPaymentAmount(
+                                    actualPayment,
+                                    record.payment_currency
+                                  )}
                             </div>
                           </div>
                         </div>
 
-                        {/* Admin Actions */}
-                        {isAdmin && record.status === 'pending' && (
-                          <div className='mt-4 flex justify-end'>
-                            <Button
-                              size='sm'
-                              variant='outline'
-                              onClick={() => setConfirmTradeNo(record.trade_no)}
-                              disabled={completing}
-                            >
-                              {t('Complete Order')}
-                            </Button>
+                        {/* Actions */}
+                        {(record.status === 'success' ||
+                          (isAdmin && record.status === 'pending')) && (
+                          <div className='mt-4 flex justify-end gap-2'>
+                            {record.status === 'success' && (
+                              <Button
+                                size='sm'
+                                variant='outline'
+                                onClick={() => setInvoiceTopupId(record.id)}
+                              >
+                                <ReceiptText className='h-4 w-4' />
+                                {t('View Invoice')}
+                              </Button>
+                            )}
+                            {isAdmin && record.status === 'pending' && (
+                              <Button
+                                size='sm'
+                                variant='outline'
+                                onClick={() =>
+                                  setConfirmTradeNo(record.trade_no)
+                                }
+                                disabled={completing}
+                              >
+                                {t('Complete Order')}
+                              </Button>
+                            )}
                           </div>
                         )}
                       </div>
@@ -318,6 +351,12 @@ export function BillingHistoryDialog({
           </div>
         </DialogContent>
       </Dialog>
+
+      <InvoiceDialog
+        open={invoiceTopupId !== null}
+        topupId={invoiceTopupId}
+        onOpenChange={handleInvoiceOpenChange}
+      />
 
       {/* Confirm Complete Order Dialog */}
       <AlertDialog
