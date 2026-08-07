@@ -17,6 +17,7 @@ import (
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 
 	"github.com/gin-gonic/gin"
+	"github.com/shopspring/decimal"
 	"github.com/stripe/stripe-go/v81"
 	"github.com/stripe/stripe-go/v81/checkout/session"
 	"github.com/stripe/stripe-go/v81/webhook"
@@ -24,6 +25,8 @@ import (
 )
 
 var stripeAdaptor = &StripeAdaptor{}
+
+const stripeMaxTopup = 10000
 
 // StripePayRequest represents a payment request for Stripe checkout.
 type StripePayRequest struct {
@@ -53,7 +56,7 @@ func (*StripeAdaptor) RequestAmount(c *gin.Context, req *StripePayRequest) {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "获取用户分组失败"})
 		return
 	}
-	payMoney := getStripePayMoney(float64(req.Amount), group)
+	payMoney := getStripePayMoney(req.Amount, group)
 	if payMoney <= 0.01 {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "充值金额过低"})
 		return
@@ -70,8 +73,8 @@ func (*StripeAdaptor) RequestPay(c *gin.Context, req *StripePayRequest) {
 		c.JSON(http.StatusOK, gin.H{"message": fmt.Sprintf("充值数量不能小于 %d", getStripeMinTopup()), "data": 10})
 		return
 	}
-	if req.Amount > 10000 {
-		c.JSON(http.StatusOK, gin.H{"message": "充值数量不能大于 10000", "data": 10})
+	if req.Amount > getStripeMaxTopup() {
+		c.JSON(http.StatusOK, gin.H{"message": fmt.Sprintf("充值数量不能大于 %d", getStripeMaxTopup()), "data": 10})
 		return
 	}
 
@@ -86,13 +89,26 @@ func (*StripeAdaptor) RequestPay(c *gin.Context, req *StripePayRequest) {
 	}
 
 	id := c.GetInt("id")
-	user, _ := model.GetUserById(id, false)
-	chargedMoney := GetChargedAmount(float64(req.Amount), *user)
+	user, err := model.GetUserById(id, false)
+	if err != nil || user == nil {
+		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "用户不存在"})
+		return
+	}
+	normalizedAmount := normalizeStripeTopupAmount(req.Amount)
+	creditAmount := getTopupUSDAmount(req.Amount)
+	if operation_setting.GetQuotaDisplayType() == operation_setting.QuotaDisplayTypeTokens {
+		creditAmount = decimal.NewFromInt(normalizedAmount)
+	}
+	chargedMoney := creditAmount.InexactFloat64()
+	if operation_setting.GetQuotaDisplayType() != operation_setting.QuotaDisplayTypeCNY {
+		chargedMoney = GetChargedAmount(chargedMoney, *user)
+	}
+	paymentAmount := getStripePayMoney(req.Amount, user.Group)
 
 	reference := fmt.Sprintf("new-api-ref-%d-%d-%s", user.Id, time.Now().UnixMilli(), randstr.String(4))
 	referenceId := "ref_" + common.Sha1([]byte(reference))
 
-	payLink, err := genStripeLink(referenceId, user.StripeCustomer, user.Email, req.Amount, req.SuccessURL, req.CancelURL)
+	payLink, err := genStripeLink(referenceId, user.StripeCustomer, user.Email, normalizedAmount, paymentAmount, req.SuccessURL, req.CancelURL)
 	if err != nil {
 		logger.LogError(c.Request.Context(), fmt.Sprintf("Stripe 创建 Checkout Session 失败 user_id=%d trade_no=%s amount=%d error=%q", id, referenceId, req.Amount, err.Error()))
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "拉起支付失败"})
@@ -100,9 +116,14 @@ func (*StripeAdaptor) RequestPay(c *gin.Context, req *StripePayRequest) {
 	}
 
 	topUp := &model.TopUp{
-		UserId:          id,
-		Amount:          req.Amount,
-		Money:           chargedMoney,
+		UserId: id,
+		Amount: normalizedAmount,
+		Money:  chargedMoney,
+		CreditedQuota: decimal.NewFromFloat(chargedMoney).
+			Mul(decimal.NewFromFloat(common.QuotaPerUnit)).
+			IntPart(),
+		PaymentAmount:   paymentAmount,
+		PaymentCurrency: "CNY",
 		TradeNo:         referenceId,
 		PaymentMethod:   model.PaymentMethodStripe,
 		PaymentProvider: model.PaymentProviderStripe,
@@ -333,12 +354,13 @@ func sessionExpired(ctx context.Context, event stripe.Event) {
 //   - referenceId: unique reference identifier for the transaction
 //   - customerId: existing Stripe customer ID (empty string if new customer)
 //   - email: customer email address for new customer creation
-//   - amount: quantity of units to purchase
+//   - amount: fixed-price quantity for legacy USD/token input modes
+//   - paymentAmount: exact CNY amount quoted to the user
 //   - successURL: custom URL to redirect after successful payment (empty for default)
 //   - cancelURL: custom URL to redirect when payment is canceled (empty for default)
 //
 // Returns the checkout session URL or an error if the session creation fails.
-func genStripeLink(referenceId string, customerId string, email string, amount int64, successURL string, cancelURL string) (string, error) {
+func genStripeLink(referenceId string, customerId string, email string, amount int64, paymentAmount float64, successURL string, cancelURL string) (string, error) {
 	if !strings.HasPrefix(setting.StripeApiSecret, "sk_") && !strings.HasPrefix(setting.StripeApiSecret, "rk_") {
 		return "", fmt.Errorf("无效的Stripe API密钥")
 	}
@@ -353,18 +375,20 @@ func genStripeLink(referenceId string, customerId string, email string, amount i
 		cancelURL = paymentReturnPath("/console/topup")
 	}
 
+	lineItem, err := getStripeCheckoutLineItem(amount, paymentAmount)
+	if err != nil {
+		return "", err
+	}
+
+	allowPromotionCodes := setting.StripePromotionCodesEnabled &&
+		operation_setting.GetQuotaDisplayType() != operation_setting.QuotaDisplayTypeCNY
 	params := &stripe.CheckoutSessionParams{
-		ClientReferenceID: stripe.String(referenceId),
-		SuccessURL:        stripe.String(successURL),
-		CancelURL:         stripe.String(cancelURL),
-		LineItems: []*stripe.CheckoutSessionLineItemParams{
-			{
-				Price:    stripe.String(setting.StripePriceId),
-				Quantity: stripe.Int64(amount),
-			},
-		},
+		ClientReferenceID:   stripe.String(referenceId),
+		SuccessURL:          stripe.String(successURL),
+		CancelURL:           stripe.String(cancelURL),
+		LineItems:           []*stripe.CheckoutSessionLineItemParams{lineItem},
 		Mode:                stripe.String(string(stripe.CheckoutSessionModePayment)),
-		AllowPromotionCodes: stripe.Bool(setting.StripePromotionCodesEnabled),
+		AllowPromotionCodes: stripe.Bool(allowPromotionCodes),
 	}
 
 	if "" == customerId {
@@ -385,6 +409,40 @@ func genStripeLink(referenceId string, customerId string, email string, amount i
 	return result.URL, nil
 }
 
+func getStripeCheckoutLineItem(amount int64, paymentAmount float64) (*stripe.CheckoutSessionLineItemParams, error) {
+	displayType := operation_setting.GetQuotaDisplayType()
+	if displayType == operation_setting.QuotaDisplayTypeCNY ||
+		displayType == operation_setting.QuotaDisplayTypeCustom {
+		unitAmount := decimal.NewFromFloat(paymentAmount).
+			Mul(decimal.NewFromInt(100)).
+			Round(0).
+			IntPart()
+		if unitAmount < 1 {
+			return nil, fmt.Errorf("Stripe 支付金额过低")
+		}
+
+		return &stripe.CheckoutSessionLineItemParams{
+			PriceData: &stripe.CheckoutSessionLineItemPriceDataParams{
+				Currency: stripe.String("cny"),
+				ProductData: &stripe.CheckoutSessionLineItemPriceDataProductDataParams{
+					Name: stripe.String(fmt.Sprintf("%s Top-up", common.SystemName)),
+				},
+				UnitAmount: stripe.Int64(unitAmount),
+			},
+			Quantity: stripe.Int64(1),
+		}, nil
+	}
+
+	if amount < 1 || strings.TrimSpace(setting.StripePriceId) == "" {
+		return nil, fmt.Errorf("Stripe 固定价格配置无效")
+	}
+
+	return &stripe.CheckoutSessionLineItemParams{
+		Price:    stripe.String(setting.StripePriceId),
+		Quantity: stripe.Int64(amount),
+	}, nil
+}
+
 func GetChargedAmount(count float64, user model.User) float64 {
 	topUpGroupRatio := common.GetTopupGroupRatio(user.Group)
 	if topUpGroupRatio == 0 {
@@ -394,31 +452,37 @@ func GetChargedAmount(count float64, user model.User) float64 {
 	return count * topUpGroupRatio
 }
 
-func getStripePayMoney(amount float64, group string) float64 {
-	originalAmount := amount
-	if operation_setting.GetQuotaDisplayType() == operation_setting.QuotaDisplayTypeTokens {
-		amount = amount / common.QuotaPerUnit
+func getStripePayMoney(amount int64, group string) float64 {
+	_ = group
+	dAmount := getTopupUSDAmount(amount)
+	switch operation_setting.GetQuotaDisplayType() {
+	case operation_setting.QuotaDisplayTypeCNY:
+		// CNY top-up tiers are exact: ¥10 credit charges exactly ¥10.
+		return decimal.NewFromInt(amount).InexactFloat64()
+	case operation_setting.QuotaDisplayTypeTokens:
+		dAmount = decimal.NewFromInt(normalizeStripeTopupAmount(amount))
 	}
-	// Using float64 for monetary calculations is acceptable here due to the small amounts involved
-	topupGroupRatio := common.GetTopupGroupRatio(group)
-	if topupGroupRatio == 0 {
-		topupGroupRatio = 1
-	}
-	// apply optional preset discount by the original request amount (if configured), default 1.0
-	discount := 1.0
-	if ds, ok := operation_setting.GetPaymentSetting().AmountDiscount[int(originalAmount)]; ok {
-		if ds > 0 {
-			discount = ds
-		}
-	}
-	payMoney := amount * setting.StripeUnitPrice * topupGroupRatio * discount
-	return payMoney
+
+	// Stripe Checkout charges a fixed PriceId once per quantity. Group top-up
+	// ratios affect credited quota, while preset discounts are not applied to
+	// the external Stripe PriceId. The quote must mirror the checkout amount.
+	return dAmount.Mul(decimal.NewFromFloat(setting.StripeUnitPrice)).InexactFloat64()
 }
 
 func getStripeMinTopup() int64 {
-	minTopup := setting.StripeMinTopUp
-	if operation_setting.GetQuotaDisplayType() == operation_setting.QuotaDisplayTypeTokens {
-		minTopup = minTopup * int(common.QuotaPerUnit)
+	return normalizeTopupMinimum(setting.StripeMinTopUp)
+}
+
+func getStripeMaxTopup() int64 {
+	return normalizeTopupMinimum(stripeMaxTopup)
+}
+
+func normalizeStripeTopupAmount(amount int64) int64 {
+	if operation_setting.GetQuotaDisplayType() != operation_setting.QuotaDisplayTypeTokens {
+		return amount
 	}
-	return int64(minTopup)
+
+	return decimal.NewFromInt(amount).
+		Div(decimal.NewFromFloat(common.QuotaPerUnit)).
+		IntPart()
 }

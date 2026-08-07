@@ -1,0 +1,107 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [6 0 R] /Count 1 >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>
+endobj
+6 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R /F2 5 0 R >> >> /Contents 7 0 R >>
+endobj
+7 0 obj
+<< /Length 3215 >>
+stream
+BT /F2 34.0 Tf 50.0 792.0 Td (Invoice) Tj ET
+BT /F1 10.0 Tf 50.0 768.0 Td (USDT top-up invoice) Tj ET
+BT /F1 8.0 Tf 355.0 792.0 Td (Invoice number) Tj ET
+BT /F2 8.0 Tf 451.0 792.0 Td (INV-USDT-000001-3F0ACABA) Tj ET
+BT /F1 8.0 Tf 355.0 776.0 Td (Issue date) Tj ET
+BT /F2 8.0 Tf 451.0 776.0 Td (2026-07-06) Tj ET
+BT /F1 8.0 Tf 355.0 760.0 Td (Order number) Tj ET
+BT /F2 8.0 Tf 451.0 760.0 Td (DEMO-USDT-TRC20-001) Tj ET
+0.75 w 50.0 734.0 m 545.0 734.0 l S
+BT /F2 13.0 Tf 50.0 710.0 Td (Seller) Tj ET
+BT /F2 13.0 Tf 312.5 710.0 Td (Bill to) Tj ET
+BT /F1 8.0 Tf 50.0 690.0 Td (Name) Tj ET
+BT /F2 8.0 Tf 170.0 690.0 Td (N/A) Tj ET
+BT /F1 8.0 Tf 50.0 674.0 Td (Address) Tj ET
+BT /F2 8.0 Tf 170.0 674.0 Td (N/A) Tj ET
+BT /F1 8.0 Tf 50.0 658.0 Td (Email) Tj ET
+BT /F2 8.0 Tf 170.0 658.0 Td (N/A) Tj ET
+BT /F1 8.0 Tf 50.0 642.0 Td (Hong Kong BR No.) Tj ET
+BT /F2 8.0 Tf 170.0 642.0 Td (N/A) Tj ET
+BT /F1 8.0 Tf 312.5 690.0 Td (Name) Tj ET
+BT /F2 8.0 Tf 432.5 690.0 Td (Root User) Tj ET
+BT /F1 8.0 Tf 312.5 674.0 Td (Company) Tj ET
+BT /F2 8.0 Tf 432.5 674.0 Td (N/A) Tj ET
+BT /F1 8.0 Tf 312.5 658.0 Td (Address) Tj ET
+BT /F2 8.0 Tf 432.5 658.0 Td (N/A) Tj ET
+BT /F1 8.0 Tf 312.5 642.0 Td (Email) Tj ET
+BT /F2 8.0 Tf 432.5 642.0 Td (N/A) Tj ET
+0.75 w 50.0 618.0 m 545.0 618.0 l S
+0.94 g 50.0 526.0 210.0 68.0 re f 0 g
+BT /F2 8.0 Tf 64.0 572.0 Td (Amount paid) Tj ET
+BT /F2 20.0 Tf 64.0 546.0 Td (50 USDT) Tj ET
+BT /F1 8.0 Tf 300.0 590.0 Td (Payment method) Tj ET
+BT /F2 8.0 Tf 420.0 590.0 Td (usdt-trc20) Tj ET
+BT /F1 8.0 Tf 300.0 574.0 Td (Provider) Tj ET
+BT /F2 8.0 Tf 420.0 574.0 Td (waffo_pancake) Tj ET
+BT /F1 8.0 Tf 300.0 558.0 Td (Credited amount) Tj ET
+BT /F2 8.0 Tf 420.0 558.0 Td (500000) Tj ET
+0.75 w 50.0 502.0 m 545.0 502.0 l S
+BT /F2 13.0 Tf 50.0 478.0 Td (USDT payment details) Tj ET
+BT /F1 8.0 Tf 50.0 458.0 Td (Network) Tj ET
+BT /F2 8.0 Tf 170.0 458.0 Td (TRC20) Tj ET
+BT /F1 8.0 Tf 50.0 442.0 Td (Payment completion time) Tj ET
+BT /F2 8.0 Tf 170.0 442.0 Td (2026-07-06T03:06:53+08:00) Tj ET
+BT /F1 8.0 Tf 50.0 426.0 Td (Receiving wallet) Tj ET
+BT /F2 8.0 Tf 170.0 426.0 Td (N/A) Tj ET
+BT /F1 8.0 Tf 50.0 410.0 Td (Blockchain transaction hash) Tj ET
+BT /F2 8.0 Tf 170.0 410.0 Td (N/A) Tj ET
+0.75 w 50.0 382.0 m 545.0 382.0 l S
+BT /F2 13.0 Tf 50.0 358.0 Td (Line items) Tj ET
+0.94 g 50.0 314.0 495.0 24.0 re f 0 g
+BT /F2 8.0 Tf 58.0 323.0 Td (Description) Tj ET
+BT /F2 8.0 Tf 350.0 323.0 Td (Qty) Tj ET
+BT /F2 8.0 Tf 410.0 323.0 Td (Unit amount) Tj ET
+BT /F2 8.0 Tf 500.0 323.0 Td (Line total) Tj ET
+0.75 w 50.0 314.0 m 545.0 314.0 l S
+BT /F1 8.0 Tf 58.0 290.0 Td (USDT wallet top-up) Tj ET
+BT /F1 8.0 Tf 350.0 290.0 Td (1) Tj ET
+BT /F1 8.0 Tf 410.0 290.0 Td (50 USDT) Tj ET
+BT /F1 8.0 Tf 500.0 290.0 Td (50 USDT) Tj ET
+0.75 w 50.0 270.0 m 545.0 270.0 l S
+BT /F1 8.0 Tf 325.0 260.0 Td (Subtotal) Tj ET
+BT /F2 8.0 Tf 445.0 260.0 Td (50 USDT) Tj ET
+BT /F1 8.0 Tf 325.0 244.0 Td (Tax) Tj ET
+BT /F2 8.0 Tf 445.0 244.0 Td (N/A: N/A) Tj ET
+BT /F1 8.0 Tf 325.0 228.0 Td (Total) Tj ET
+BT /F2 8.0 Tf 445.0 228.0 Td (50 USDT) Tj ET
+BT /F1 8.0 Tf 325.0 212.0 Td (Amount paid) Tj ET
+BT /F2 8.0 Tf 445.0 212.0 Td (50 USDT) Tj ET
+BT /F1 8.0 Tf 325.0 196.0 Td (Balance due) Tj ET
+BT /F2 8.0 Tf 445.0 196.0 Td (0 USDT) Tj ET
+
+endstream
+endobj
+xref
+0 8
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000000 00000 f 
+0000000115 00000 n 
+0000000185 00000 n 
+0000000260 00000 n 
+0000000396 00000 n 
+trailer
+<< /Size 8 /Root 1 0 R >>
+startxref
+3663
+%%EOF
