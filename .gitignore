@@ -36,3 +36,11 @@ data/
 token_estimator_test.go
 skills-lock.json
 .playwright-mcp
+
+# Deployment artifacts
+backups/
+*.bak.*
+app.log
+newapi.log
+new-api.log
+newapi
